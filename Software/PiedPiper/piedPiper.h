@@ -16,7 +16,7 @@
 #define AUD_IN_DOWNSAMPLE_RATIO 2 // sinc filter downsample ratio, ideally should be a power of 2
 #define AUD_IN_DOWNSAMPLE_FILTER_SIZE 8 // downsample sinc filter number of zero crossing, more crossings will produce a cleaner result but will also use more processor time 
 #define AUD_OUT_UPSAMPLE_RATIO 8 // sinc filter upsample ratio, ideally should be a power of 2
-#define AUD_OUT_UPSAMPLE_FILTER_SIZE 5 // // upsample sinc filter number of zero crossings, more crossings will produce a cleaner result but will also use more processor time 
+#define AUD_OUT_UPSAMPLE_FILTER_SIZE 10 // // upsample sinc filter number of zero crossings, more crossings will produce a cleaner result but will also use more processor time 
 #define AUD_OUT_TIME 8
 #define REC_TIME 8 // Number of seconds of audio to record when frequency test is positive
 #define WIN_SIZE 512 // Size of window used when sampling incoming audio; must be a power of 2
@@ -105,7 +105,6 @@ static volatile int downsampleInputC = 0;
     // circular input buffer for upsampling
 static volatile short upsampleInput[sincTableSizeUp];
 static volatile int upsampleInputPtr = 0;
-// static volatile int upsampleInputPtrCpy = upsampleInputPtr;
 static volatile int upsampleInputC = 0;
 
 class piedPiper {

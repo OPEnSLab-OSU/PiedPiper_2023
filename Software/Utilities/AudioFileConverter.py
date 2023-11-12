@@ -41,7 +41,7 @@ outFile = open(outFileName, 'wb+')
 
 maxS = 0
 minS = 10000000
-avg = 0;
+avg = 0
 
 print(wfile.getnframes())
 

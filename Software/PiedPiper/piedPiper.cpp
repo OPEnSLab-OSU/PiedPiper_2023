@@ -88,18 +88,20 @@ void piedPiper::OutputUpsampledSample(void) {
   analogWrite(AUD_OUT, nextOutputSample);
 
   if (outputSampleBufferPtr == playbackSampleCount) { return; }
-
+  
+  // store last location of upsampling input buffer
   int upsampleInputPtrCpy = upsampleInputPtr;
-  if (upsampleInputC == 0) {
-    upsampleInput[upsampleInputPtr] = outputSampleBuffer[outputSampleBufferPtr++];
+  
+  // store value of sample in upsampling input buffer, and pad with zeroes
+  if (upsampleInputC++ == 0) {
+    upsampleInput[upsampleInputPtr++] = outputSampleBuffer[outputSampleBufferPtr++];
   } else {
-    upsampleInput[upsampleInputPtr] = 0;
+    upsampleInput[upsampleInputPtr++] = 0;
   }
-  upsampleInputC += 1;
-  upsampleInputPtr += 1;
   if (upsampleInputC == AUD_OUT_UPSAMPLE_RATIO) { upsampleInputC = 0; }
   if (upsampleInputPtr == sincTableSizeUp) { upsampleInputPtr = 0; }
 
+  // calculate upsampled value
   float upsampledSample = 0.0;
   for (int i = 0; i < sincTableSizeUp; i++) {
     upsampledSample += upsampleInput[upsampleInputPtrCpy++] * sincFilterTableUpsample[i];
@@ -280,7 +282,7 @@ void piedPiper::calculateDownsamplSincFilterTable() {
   int ratio = AUD_IN_DOWNSAMPLE_RATIO;
   int nz = AUD_IN_DOWNSAMPLE_FILTER_SIZE;
   // Build sinc function table for downsampling by @AUD_IN_DOWNSAMPLE_RATIO
-  int n = (2 * nz + 1) * ratio - ratio + 1;
+  int n = sincTableSizeDown;
 
   float ns[n];
   float ns_step = float(nz * ratio * 2) / (n - 1);
@@ -308,7 +310,7 @@ void piedPiper::calculateUpsampleSincFilterTable() {
   int ratio = AUD_OUT_UPSAMPLE_RATIO;
   int nz = AUD_OUT_UPSAMPLE_FILTER_SIZE;
   // Build sinc function table for upsampling by @upsample_ratio
-  int n = (2 * nz + 1) * ratio - ratio + 1;
+  int n = sincTableSizeUp;
 
   float ns[n];
   float ns_step = float(nz * 2) / (n - 1);
