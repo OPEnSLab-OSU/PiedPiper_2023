@@ -15,6 +15,8 @@
 
 #define AUD_OUT A0
 
+#define SLEEP_INT 12
+
 #define HYPNOS_5VR 6
 #define HYPNOS_3VR 5
 
@@ -25,23 +27,36 @@
 
 #define BEGIN_LOG_WAIT_TIME 10000 //3600000
 
-// Audio output stuff
-volatile static short outputSampleBuffer[AUD_OUT_SAMPLE_FREQ * AUD_OUT_TIME];
-volatile static int outputSampleBufferPtr = 0;
-static const int outputSampleDelayTime = 1000000 / (AUD_OUT_SAMPLE_FREQ * AUD_OUT_UPSAMPLE_RATIO);
-//static const int outputSampleDelayTime = 1000000 / AUD_OUT_SAMPLE_FREQ;
-static volatile int playbackSampleCount = AUD_OUT_SAMPLE_FREQ * AUD_OUT_TIME;
+enum SLEEPMODES
+{
+  IDLE0 = 0x0,
+  IDLE1 = 0x1,
+  IDLE2 = 0x2,
+  STANDYBY = 0x4,  
+  HIBERNATE = 0x5,
+  BACKUP = 0x6,
+  OFF = 0x7
+};
 
-static volatile int nextOutputSample = 0;
+uint8_t sleepmode = STANDYBY;
+
+// Audio output stuff
+volatile short outputSampleBuffer[AUD_OUT_SAMPLE_FREQ * AUD_OUT_TIME];
+volatile int outputSampleBufferPtr = 0;
+const int outputSampleDelayTime = 1000000 / (AUD_OUT_SAMPLE_FREQ * AUD_OUT_UPSAMPLE_RATIO);
+//const int outputSampleDelayTime = 1000000 / AUD_OUT_SAMPLE_FREQ;
+volatile int playbackSampleCount = AUD_OUT_SAMPLE_FREQ * AUD_OUT_TIME;
+
+volatile int nextOutputSample = 0;
 
 // sinc filter for upsampling
-static const int sincTableSizeUp = (2 * AUD_OUT_UPSAMPLE_FILTER_SIZE + 1) * AUD_OUT_UPSAMPLE_RATIO - AUD_OUT_UPSAMPLE_RATIO + 1;
-static float sincFilterTableUpsample[sincTableSizeUp];
+const int sincTableSizeUp = (2 * AUD_OUT_UPSAMPLE_FILTER_SIZE + 1) * AUD_OUT_UPSAMPLE_RATIO - AUD_OUT_UPSAMPLE_RATIO + 1;
+float sincFilterTableUpsample[sincTableSizeUp];
 
     // circular input buffer for upsampling
-static volatile short upsampleInput[sincTableSizeUp];
-static volatile int upsampleInputPtr = 0;
-static volatile int upsampleInputC = 0;
+volatile short upsampleInput[sincTableSizeUp];
+volatile int upsampleInputPtr = 0;
+volatile int upsampleInputC = 0;
 
 char playback_filename[9] = "BMSB.PAD";
 
@@ -63,6 +78,16 @@ void startISRTimer(const unsigned long interval_us, void(*fnPtr)())
   ITimer.attachInterruptInterval(interval_us, fnPtr);
 }
 
+struct opTime {
+  short hour;
+  short minute;
+  int minutes;
+};
+
+opTime* operationTimes = NULL;
+int numOperationTimes = 0;
+
+volatile bool operationSet = 0;
 
 void setup() {
   Serial.begin(2000000);
@@ -72,13 +97,19 @@ void setup() {
 
   Serial.println("Initializing");
 
+  //pinMode(AUD_IN, INPUT);
   pinMode(AUD_OUT, OUTPUT);
   pinMode(HYPNOS_5VR, OUTPUT);
   pinMode(HYPNOS_3VR, OUTPUT);
   pinMode(SD_CS, OUTPUT);  
   pinMode(AMP_SD, OUTPUT);
+  pinMode(13, OUTPUT);
+  pinMode(SLEEP_INT, INPUT_PULLUP);
+
+  //digitalWrite(LED_BUILTIN, HIGH);
 
   digitalWrite(HYPNOS_3VR, LOW);
+
 
   Serial.println("Testing SD...");
 
@@ -97,6 +128,12 @@ void setup() {
   if (SD.exists(playback_sound_dir)) Serial.println("SD card has correct directory structure.");
   else Serial.println("WARNING: SD card does not have the correct directory structure.");
 
+  SD.end();
+
+  Wire.begin();
+
+  Serial.println("Initializing RTC...");
+
   // Initialize RTC
   if (!rtc.begin())
   {
@@ -110,31 +147,295 @@ void setup() {
     rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
   }
 
+  char date[10] = "hh:mm:ss";
+  rtc.now().toString(date);
+  Serial.println(date);
+
+  // setup alarms
+
+  rtc.clearAlarm(1);
+  rtc.clearAlarm(2);
+
+  rtc.writeSqwPinMode(DS3231_OFF);
+
+  rtc.disableAlarm(2);
+
+  Wire.end();
   // Disable the 3-volt rail.
   digitalWrite(HYPNOS_3VR, HIGH);
 
-  Wire.end();
-
+  // calculate sinc filter for upsampling
   calculateUpsampleSincFilterTable();
+  
+  // load operations
+  LoadOperationTimes();
 
-  ITimer.attachInterruptInterval(1000000, NULL);
-
+  // load sound
   LoadSound(playback_filename);
+
+  // enable disable isr timer
+  startISRTimer(outputSampleDelayTime, OutputUpsampledSample);
+  stopISRTimer();
+
+  Serial.println("Performing setup playback");
   Playback();
 
-  delay(10000);
+  PM->SLEEPCFG.bit.SLEEPMODE = sleepmode;
+  while(PM->SLEEPCFG.bit.SLEEPMODE != sleepmode);
+
+  // setup RTC alarm1 pin
+  attachWakeUpISR();
+  detachWakeUpISR();
+
+  Serial.println("Setup complete");
+  Serial.println();
+
+  delay(1000);
 }
 
 void loop() {
-  Playback();
+  
+  // set alarm
+  bool performPlayback = setupOperation();
+
+  // keep performing playback until alarm is triggered
+  while (performPlayback) {
+    // Serial.println("Performing playback");
+    Playback();
+    // check if alarm was triggered via operationSet flag
+    if (!operationSet) {
+      // set next alarm
+      setupOperation();
+      break;
+    }
+  }
+
+
+  uint32_t nowTime = getRTCTime();
+
+  goToSleep();
+
+  // CODE STARTS HERE AFTER SLEEP!
+
+  uint32_t sleepTime = getRTCTime() - nowTime;
+
+  initUSBDevice();
+
+  Serial.println();
+  Serial.print("I slept for ");
+  Serial.print(sleepTime);
+  Serial.println(" seconds");
 }
 
+// attach RTC alarm pin
+void attachWakeUpISR() {
+  attachInterrupt(digitalPinToInterrupt(SLEEP_INT), wakeUpISR, CHANGE);
+}
+
+// detach RTC alarm pin
+void detachWakeUpISR() {
+  detachInterrupt(digitalPinToInterrupt(SLEEP_INT));
+}
+
+// RTC alarm function
+void wakeUpISR() {
+  operationSet = 0;
+}
+
+void goToSleep() {
+  Serial.println("Going to sleep");
+
+  USBDevice.detach();
+  USBDevice.end();
+  USBDevice.standby();
+
+  PM->SLEEPCFG.bit.SLEEPMODE = sleepmode;
+  while(PM->SLEEPCFG.bit.SLEEPMODE != sleepmode);
+
+  // PM->STDBYCFG.bit.RAMCFG = 0x2;
+  // while(PM->STDBYCFG.bit.RAMCFG != 0x2);
+
+  // PM->STDBYCFG.bit.FASTWKUP = 0x0;
+  // while(PM->STDBYCFG.bit.FASTWKUP != 0x0);
+
+  // set to low power mode
+  __DSB();
+  __WFI();
+}
+
+void initUSBDevice() {
+  USBDevice.init();
+  USBDevice.attach();
+  delay(3000);
+}
+
+uint32_t getRTCTime() {
+  uint32_t timeSeconds;
+
+  digitalWrite(HYPNOS_3VR, LOW);
+  Wire.begin();
+
+  timeSeconds = rtc.now().secondstime();
+
+  Wire.end();
+  digitalWrite(HYPNOS_3VR, HIGH);
+
+  return timeSeconds;
+}
+
+// void setupPins() {
+//   //pinMode(AUD_IN, INPUT);
+//   pinMode(AUD_OUT, OUTPUT);
+//   pinMode(HYPNOS_5VR, OUTPUT);
+//   pinMode(HYPNOS_3VR, OUTPUT);
+//   pinMode(SD_CS, OUTPUT);  
+//   pinMode(AMP_SD, OUTPUT);
+//   pinMode(13, OUTPUT);
+//   pinMode(SLEEP_INT, INPUT_PULLUP);
+// }
+
+// load operation times from "PBINT.text"
+bool LoadOperationTimes() {
+
+  char dir[17];
+
+  strcpy(dir, "/PBINT/PBINT.txt");
+
+  ResetSPI();
+  digitalWrite(HYPNOS_3VR, LOW);
+
+  if (!BeginSD()) {
+    digitalWrite(HYPNOS_3VR, HIGH);
+    return false;
+  }
+
+  if (!SD.exists(dir)) {
+    digitalWrite(HYPNOS_3VR, HIGH);
+    return false;
+  }
+
+  data = SD.open(dir, FILE_READ);
+
+  if (!data) {
+    digitalWrite(HYPNOS_3VR, HIGH);
+    return false;
+  }
+
+  // read and store playback intervals
+
+  while(data.available()) {
+    //int minutes = data.readStringUNtil('\n').toInt();
+    short s_hour = data.readStringUntil(':').toInt();
+    short s_minute = data.readStringUntil('\n').toInt();
+    addOperationTime(s_hour, s_minute);
+  }
+
+  data.close();
+  SD.end();
+  digitalWrite(HYPNOS_3VR, HIGH);
+
+  // print playback intervals
+  Serial.println("Printing operation hours");
+  for (int i = 0; i < numOperationTimes; i = i + 2) {
+    Serial.printf("%02d:%02d - %02d:%02d\n", operationTimes[i].hour, operationTimes[i].minute, operationTimes[i + 1].hour, operationTimes[i + 1].minute);
+  }
+  Serial.println();
+
+  return true;
+}
+
+void addOperationTime(int hour, int minute) {
+  numOperationTimes += 1;
+  operationTimes = (opTime*)realloc(operationTimes, numOperationTimes * sizeof(opTime));
+  operationTimes[numOperationTimes - 1].hour = hour;
+  operationTimes[numOperationTimes - 1].minute = minute;
+  operationTimes[numOperationTimes - 1].minutes = hour * 60 + minute;
+}
+
+
+// setup RTC alarm based on current time
+bool setupOperation() {
+  detachWakeUpISR();
+
+  // get the current time from RTC
+  digitalWrite(HYPNOS_3VR, LOW);
+  Wire.begin();
+
+  DateTime nowDT = rtc.now();
+
+  rtc.clearAlarm(1);
+
+  Wire.end();
+  digitalWrite(HYPNOS_3VR, HIGH);
+
+  // for now all operations are the same for this time of day
+  int nowMinutes = nowDT.hour() * 60 + nowDT.minute();
+  int nowSecond = nowDT.second();
+
+  int nextAlarmTime = -1;
+
+  bool performPlayback = 0;
+
+  // Device will wake once every 24 hours if no operation times are defined
+  if (numOperationTimes != 0) {
+    // check if current time is within an operation time
+    for (int i = 0; i < numOperationTimes - 1; i += 2) {
+      if (nowMinutes >= operationTimes[i].minutes && nowMinutes < operationTimes[i + 1].minutes) {
+        performPlayback = 1;
+        nextAlarmTime = operationTimes[i + 1].minutes - nowMinutes;
+        break;
+      }
+    }
+
+    // if current time is not within operation time then set to next available operation time
+    if (performPlayback == 0) {
+      for (int i = 0; i < numOperationTimes - 1; i += 2) {
+        if (operationTimes[i].minutes > nowMinutes) {
+          nextAlarmTime = operationTimes[i].minutes - nowMinutes;
+          break;
+        }
+      }
+    }
+
+    // if nextAlarmTime wasn't set, then set to first operation time
+    if (nextAlarmTime == -1) {
+      nextAlarmTime = 1440 - nowMinutes + operationTimes[0].minutes;
+    }
+  } else {
+    nextAlarmTime = 1440;
+  }
+
+  Serial.printf("Next alarm will happen in %d minutes", nextAlarmTime);
+  Serial.println();
+
+  // schedule an alarm totalMinutes in the future
+  digitalWrite(HYPNOS_3VR, LOW);
+  Wire.begin();
+
+  if(!rtc.setAlarm1(
+      nowDT + TimeSpan(nextAlarmTime * 60 - nowSecond),
+      DS3231_A1_Minute // this mode triggers the alarm when the minutes match
+  )) {
+    Serial.println("Error, alarm wasn't set!");
+  }
+
+  Wire.end();
+  digitalWrite(HYPNOS_3VR, HIGH);
+
+  // attach interrupt
+  attachWakeUpISR();
+
+  // set flag
+  operationSet = 1;
+
+  // return true if it is time for playback
+  return performPlayback;
+}
 
 // Loads sound data from the SD card into the audio output buffer. Once loaded, the data will
 // remain in-place until LoadSound is called again. This means that all future calls to 
 // Playback will play back the same audio data.
 bool LoadSound(char* fname) {
-  //stopISRTimer();
   ResetSPI(); 
   digitalWrite(HYPNOS_3VR, LOW);
 
@@ -233,25 +534,23 @@ void Playback() {
 void OutputUpsampledSample(void) {
   analogWrite(AUD_OUT, nextOutputSample);
 
-  if (outputSampleBufferPtr == playbackSampleCount) { return; }
+  if (outputSampleBufferPtr == playbackSampleCount) return;
   
   // store last location of upsampling input buffer
   int upsampleInputPtrCpy = upsampleInputPtr;
   
   // store value of sample in upsampling input buffer, and pad with zeroes
-  if (upsampleInputC++ == 0) {
-    upsampleInput[upsampleInputPtr++] = outputSampleBuffer[outputSampleBufferPtr++];
-  } else {
-    upsampleInput[upsampleInputPtr++] = 0;
-  }
-  if (upsampleInputC == AUD_OUT_UPSAMPLE_RATIO) { upsampleInputC = 0; }
-  if (upsampleInputPtr == sincTableSizeUp) { upsampleInputPtr = 0; }
+  int sample = upsampleInputC++ == 0 ? outputSampleBuffer[outputSampleBufferPtr++] : 0;
+  upsampleInput[upsampleInputPtr++] = sample;
+  
+  if (upsampleInputC == AUD_OUT_UPSAMPLE_RATIO) upsampleInputC = 0;
+  if (upsampleInputPtr == sincTableSizeUp) upsampleInputPtr = 0;
 
   // calculate upsampled value
   float upsampledSample = 0.0;
   for (int i = 0; i < sincTableSizeUp; i++) {
     upsampledSample += upsampleInput[upsampleInputPtrCpy++] * sincFilterTableUpsample[i];
-    if (upsampleInputPtrCpy == sincTableSizeUp) { upsampleInputPtrCpy = 0; }
+    if (upsampleInputPtrCpy == sincTableSizeUp) upsampleInputPtrCpy = 0;
   }
 
   nextOutputSample = max(0, min(4095, round(upsampledSample)));
