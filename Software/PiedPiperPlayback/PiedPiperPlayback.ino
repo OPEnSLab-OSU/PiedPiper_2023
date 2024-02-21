@@ -97,20 +97,16 @@ void setup() {
 
   Serial.println("\nInitializing");
 
-  //pinMode(AUD_IN, INPUT);
-  pinMode(AUD_OUT, OUTPUT);
-  pinMode(HYPNOS_5VR, OUTPUT);
-  pinMode(HYPNOS_3VR, OUTPUT);
-  pinMode(SD_CS, OUTPUT);  
-  pinMode(AMP_SD, OUTPUT);
-  pinMode(SLEEP_INT, INPUT_PULLUP);
+  // configure pin modes
+  configurePins();
 
   // turn on 3v rail
   digitalWrite(HYPNOS_3VR, LOW);
 
   // Verify that SD can be initialized; stop the program if it can't.
-  if (!SD.begin(SD_CS)) {
+  if (!BeginSD()) {
     Serial.println("SD failed to initialize.");
+    initializationFailFlash();
   }
 
   char playback_sound_dir[20];
@@ -127,6 +123,7 @@ void setup() {
   // Initialize RTC
   if (!rtc.begin()) {
     Serial.println("RTC failed to begin.");
+    initializationFailFlash();
   }
 
   // Check if RTC lost power; adjust the clock to the compilation time if it did.
@@ -159,11 +156,13 @@ void setup() {
   // load operations
   if (!LoadOperationTimes()) {
     Serial.println("Reading operation times from SD failed");
+    initializationFailFlash();
   }
 
   // load sound
   if (!LoadSound(playback_filename)) {
     Serial.println("Reading playback sound from SD failed!");
+    initializationFailFlash();
   }
 
   // enable disable isr timer
@@ -275,16 +274,14 @@ uint32_t getRTCTime() {
   return timeSeconds;
 }
 
-// void setupPins() {
-//   //pinMode(AUD_IN, INPUT);
-//   pinMode(AUD_OUT, OUTPUT);
-//   pinMode(HYPNOS_5VR, OUTPUT);
-//   pinMode(HYPNOS_3VR, OUTPUT);
-//   pinMode(SD_CS, OUTPUT);  
-//   pinMode(AMP_SD, OUTPUT);
-//   pinMode(13, OUTPUT);
-//   pinMode(SLEEP_INT, INPUT_PULLUP);
-// }
+void configurePins() {
+  pinMode(AUD_OUT, OUTPUT);
+  pinMode(HYPNOS_5VR, OUTPUT);
+  pinMode(HYPNOS_3VR, OUTPUT);
+  pinMode(SD_CS, OUTPUT);  
+  pinMode(AMP_SD, OUTPUT);
+  pinMode(SLEEP_INT, INPUT_PULLUP);
+}
 
 // load operation times from "PBINT.txt"
 bool LoadOperationTimes() {
@@ -373,7 +370,7 @@ bool setupOperation() {
     for (int i = 0; i < numOperationTimes - 1; i += 2) {
       //Serial.printf("Now: %d, Start: %d, End: %d\n", nowMinutes, operationTimes[i].minutes, operationTimes[i + 1].minutes);
       if (nowMinutes >= operationTimes[i].minutes && nowMinutes < operationTimes[i + 1].minutes) {
-        Serial.println("playback time is in range");
+        Serial.println("Performing playback...");
         performPlayback = 1;
         nextAlarmTime = operationTimes[i + 1].minutes - nowMinutes;
         break;
@@ -479,7 +476,6 @@ bool LoadSound(char* fname) {
     if ((2 * i) < (fsize - 1)) {
       data.read((byte*)(&buff), 2);
       outputSampleBuffer[i] = buff;
-
     } else {
       break;
     }
@@ -525,7 +521,7 @@ void Playback() {
 }
 
 
-void OutputUpsampledSample(void) {
+void OutputUpsampledSample() {
   analogWrite(AUD_OUT, nextOutputSample);
 
   if (outputSampleBufferPtr == playbackSampleCount) return;
@@ -579,8 +575,7 @@ void calculateUpsampleSincFilterTable() {
   }
 }
 
-void ResetSPI()
-{
+void ResetSPI() {
   pinMode(23, INPUT);
   pinMode(24, INPUT);
   pinMode(10, INPUT);
@@ -592,18 +587,22 @@ void ResetSPI()
   pinMode(10, OUTPUT);
 }
 
-bool BeginSD()
-{
-  for (int i = 0; i < SD_OPEN_ATTEMPT_COUNT; i++)
-  {
-    if (SD.begin(SD_CS))
-    {
-      return true;
-    }
+bool BeginSD() {
+  for (int i = 0; i < SD_OPEN_ATTEMPT_COUNT; i++) {
+    if (SD.begin(SD_CS)) return true;
     //Serial.print("SD failed to initialize in SaveDetection on try #");
     //Serial.println(i);
     delay(SD_OPEN_RETRY_DELAY_MS);
   }
 
   return false;
+}
+
+void initializationFailFlash() {
+  while(1) {
+    digitalWrite(HYPNOS_3VR, LOW);
+    delay(500);
+    digitalWrite(HYPNOS_3VR, HIGH);
+    delay(500);
+  }
 }
