@@ -99,7 +99,6 @@ static float sincFilterTableUpsample[sincTableSizeUp];
     // circular input buffer for downsampling
 static volatile short downsampleInput[sincTableSizeDown];
 static volatile int downsampleInputPtr = 0;
-// static volatile int downsampleInputPtrCpy = downsampleInputPtr;
 static volatile int downsampleInputC = 0;
 
     // circular input buffer for upsampling

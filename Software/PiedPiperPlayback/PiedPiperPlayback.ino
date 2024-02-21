@@ -32,13 +32,13 @@ enum SLEEPMODES
   IDLE0 = 0x0,
   IDLE1 = 0x1,
   IDLE2 = 0x2,
-  STANDYBY = 0x4,  
+  STANDBY = 0x4,  
   HIBERNATE = 0x5,
   BACKUP = 0x6,
   OFF = 0x7
 };
 
-uint8_t sleepmode = STANDYBY;
+uint8_t sleepmode = STANDBY;
 
 // Audio output stuff
 volatile short outputSampleBuffer[AUD_OUT_SAMPLE_FREQ * AUD_OUT_TIME];
@@ -95,7 +95,7 @@ void setup() {
   analogWriteResolution(12);
   delay(4000);
 
-  Serial.println("Initializing");
+  Serial.println("\nInitializing");
 
   //pinMode(AUD_IN, INPUT);
   pinMode(AUD_OUT, OUTPUT);
@@ -103,21 +103,13 @@ void setup() {
   pinMode(HYPNOS_3VR, OUTPUT);
   pinMode(SD_CS, OUTPUT);  
   pinMode(AMP_SD, OUTPUT);
-  pinMode(13, OUTPUT);
   pinMode(SLEEP_INT, INPUT_PULLUP);
 
-  //digitalWrite(LED_BUILTIN, HIGH);
-
+  // turn on 3v rail
   digitalWrite(HYPNOS_3VR, LOW);
 
-
-  Serial.println("Testing SD...");
-
-  delay(1000);
-
   // Verify that SD can be initialized; stop the program if it can't.
-  if (!SD.begin(SD_CS))
-  {
+  if (!SD.begin(SD_CS)) {
     Serial.println("SD failed to initialize.");
   }
 
@@ -132,26 +124,23 @@ void setup() {
 
   Wire.begin();
 
-  Serial.println("Initializing RTC...");
-
   // Initialize RTC
-  if (!rtc.begin())
-  {
+  if (!rtc.begin()) {
     Serial.println("RTC failed to begin.");
   }
 
   // Check if RTC lost power; adjust the clock to the compilation time if it did.
-  if (rtc.lostPower())
-  {
+  if (rtc.lostPower()) {
     Serial.println("RTC lost power, adjusting...");
     rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
   }
 
   char date[10] = "hh:mm:ss";
   rtc.now().toString(date);
+  Serial.print("Current RTC Time: ");
   Serial.println(date);
 
-  // setup alarms
+  // reset rtc alarms
 
   rtc.clearAlarm(1);
   rtc.clearAlarm(2);
@@ -160,18 +149,22 @@ void setup() {
 
   rtc.disableAlarm(2);
 
+  // end wire, turn off 3v rail
   Wire.end();
-  // Disable the 3-volt rail.
   digitalWrite(HYPNOS_3VR, HIGH);
 
   // calculate sinc filter for upsampling
   calculateUpsampleSincFilterTable();
   
   // load operations
-  LoadOperationTimes();
+  if (!LoadOperationTimes()) {
+    Serial.println("Reading operation times from SD failed");
+  }
 
   // load sound
-  LoadSound(playback_filename);
+  if (!LoadSound(playback_filename)) {
+    Serial.println("Reading playback sound from SD failed!");
+  }
 
   // enable disable isr timer
   startISRTimer(outputSampleDelayTime, OutputUpsampledSample);
@@ -183,7 +176,7 @@ void setup() {
   PM->SLEEPCFG.bit.SLEEPMODE = sleepmode;
   while(PM->SLEEPCFG.bit.SLEEPMODE != sleepmode);
 
-  // setup RTC alarm1 pin
+  // setup pin interrupt for RTC alarm
   attachWakeUpISR();
   detachWakeUpISR();
 
@@ -200,7 +193,6 @@ void loop() {
 
   // keep performing playback until alarm is triggered
   while (performPlayback) {
-    // Serial.println("Performing playback");
     Playback();
     // check if alarm was triggered via operationSet flag
     if (!operationSet) {
@@ -209,7 +201,6 @@ void loop() {
       break;
     }
   }
-
 
   uint32_t nowTime = getRTCTime();
 
@@ -237,11 +228,12 @@ void detachWakeUpISR() {
   detachInterrupt(digitalPinToInterrupt(SLEEP_INT));
 }
 
-// RTC alarm function
+// RTC alarm interrupt function
 void wakeUpISR() {
   operationSet = 0;
 }
 
+// general procedure for going to sleep
 void goToSleep() {
   Serial.println("Going to sleep");
 
@@ -258,7 +250,7 @@ void goToSleep() {
   // PM->STDBYCFG.bit.FASTWKUP = 0x0;
   // while(PM->STDBYCFG.bit.FASTWKUP != 0x0);
 
-  // set to low power mode
+  // enable sleep
   __DSB();
   __WFI();
 }
@@ -294,7 +286,7 @@ uint32_t getRTCTime() {
 //   pinMode(SLEEP_INT, INPUT_PULLUP);
 // }
 
-// load operation times from "PBINT.text"
+// load operation times from "PBINT.txt"
 bool LoadOperationTimes() {
 
   char dir[17];
@@ -322,7 +314,6 @@ bool LoadOperationTimes() {
   }
 
   // read and store playback intervals
-
   while(data.available()) {
     //int minutes = data.readStringUNtil('\n').toInt();
     short s_hour = data.readStringUntil(':').toInt();
@@ -380,7 +371,9 @@ bool setupOperation() {
   if (numOperationTimes != 0) {
     // check if current time is within an operation time
     for (int i = 0; i < numOperationTimes - 1; i += 2) {
+      //Serial.printf("Now: %d, Start: %d, End: %d\n", nowMinutes, operationTimes[i].minutes, operationTimes[i + 1].minutes);
       if (nowMinutes >= operationTimes[i].minutes && nowMinutes < operationTimes[i + 1].minutes) {
+        Serial.println("playback time is in range");
         performPlayback = 1;
         nextAlarmTime = operationTimes[i + 1].minutes - nowMinutes;
         break;
@@ -388,7 +381,7 @@ bool setupOperation() {
     }
 
     // if current time is not within operation time then set to next available operation time
-    if (performPlayback == 0) {
+    if (!performPlayback) {
       for (int i = 0; i < numOperationTimes - 1; i += 2) {
         if (operationTimes[i].minutes > nowMinutes) {
           nextAlarmTime = operationTimes[i].minutes - nowMinutes;
@@ -405,7 +398,8 @@ bool setupOperation() {
     nextAlarmTime = 1440;
   }
 
-  Serial.printf("Next alarm will happen in %d minutes", nextAlarmTime);
+  if (nextAlarmTime < 60) Serial.printf("Next alarm will happen in %d minutes", nextAlarmTime);
+  else  Serial.printf("Next alarm will happen in %d hours and %d minutes", nextAlarmTime / 60, nextAlarmTime % 60);
   Serial.println();
 
   // schedule an alarm totalMinutes in the future
@@ -414,7 +408,7 @@ bool setupOperation() {
 
   if(!rtc.setAlarm1(
       nowDT + TimeSpan(nextAlarmTime * 60 - nowSecond),
-      DS3231_A1_Minute // this mode triggers the alarm when the minutes match
+      DS3231_A1_Hour // this mode triggers the alarm when the hours, minutes and seconds match
   )) {
     Serial.println("Error, alarm wasn't set!");
   }

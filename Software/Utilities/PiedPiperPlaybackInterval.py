@@ -106,6 +106,3 @@ def main():
     printPlaybackTimes()
 
     outputPlaybackFile()
-
-if __name__ == "__main__":
-    main()
