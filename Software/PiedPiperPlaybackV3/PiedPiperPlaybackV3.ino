@@ -1,3 +1,13 @@
+/*
+  This code is for stripped down version of Pied Piper which performs intermittent playbacks based on operation intervals
+  stored on the SD card. The code performs in the following manner:
+    1. In setup: all necassary data is loaded from the SD card, such as the playback sound (*.PAD) and playback intervals (PBINT.txt). 
+        If all data is successfully loaded from the SD card, the RTC can be initialized and setup to fire an interrupt when RTC alarm
+        goes off. Following this, the RTC alarm is based on the playback intervals and current RTC time. The device will go to sleep if
+        the current time is not within a playback interval and will reset once RTC alarm fires. Otherwise, proceeds to loop.
+    2. In loop: Playback() is called continously. Device will reset once RTC alarm fires.
+*/
+
 #include <Arduino.h>
 #include <SD.h>
 #include <SPI.h>
@@ -5,46 +15,50 @@
 #include "RTClib.h"
 #include "SAMDTimerInterrupt.h"
 
+// name of the file used for playback
+const char playback_filename[] = "BMSB.PAD";
+
 #define AUD_OUT_SAMPLE_FREQ 4096
+#define AUD_OUT_TIME 8  // maximum length of playback file in seconds
+
 #define AUD_OUT_UPSAMPLE_RATIO 8 // sinc filter upsample ratio, ideally should be a power of 2
 #define AUD_OUT_UPSAMPLE_FILTER_SIZE 10 // // upsample sinc filter number of zero crossings, more crossings will produce a cleaner result but will also use more processor time 
-#define AUD_OUT_TIME 8
 
-#define SD_OPEN_ATTEMPT_COUNT 10
-#define SD_OPEN_RETRY_DELAY_MS 100
+#define SD_OPEN_ATTEMPT_COUNT 10  // number of times to retry SD.begin()
+#define SD_OPEN_RETRY_DELAY_MS 100  // delay between SD.begin() attempt
 
-#define AUD_OUT A0
-
-#define SLEEP_INT 12
+#define AUD_OUT A0    // Audio output pin
 
 #define HYPNOS_5VR 6
 #define HYPNOS_3VR 5
 
 #define SD_CS 11 // Chip select for SD
-#define AMP_SD 9
+#define AMP_SD 9  // Amplifier enable
 
-#define PLAYBACK_INT 2000 // Milliseconds between playback [900000]
+#define DEFAULT_PLAYBACK_INT 1440 // Briefly wake device after this many minutes if no playback intervals are defined (PBINT.txt is empty)
+                                  // If set to 0, playback will be performed forever and operation times defined in PBINT.txt will be ignored.
 
-#define BEGIN_LOG_WAIT_TIME 10000 //3600000
-
+// various sleep modes available on the Feather M4 Express
 enum SLEEPMODES
 {
   IDLE0 = 0x0,
   IDLE1 = 0x1,
   IDLE2 = 0x2,
-  STANDBY = 0x4,  
-  HIBERNATE = 0x5,
-  BACKUP = 0x6,
-  OFF = 0x7
+  STANDBY = 0x4,    // STANDBY sleep mode can exited with a interrupt (this sleep mode is good, but draws ~20mA by default)
+  HIBERNATE = 0x5,  // HIBERNATE sleep mode can only be exited with a device reset
+  BACKUP = 0x6,     // BACKUP sleep mode can only be exited with a device reset
+  OFF = 0x7         // OFF sleep mode can only be exited with a device reset (best sleep mode for power consumption)
 };
 
-uint8_t sleepmode = STANDBY;
+// For this version, we are using the OFF sleep mode which results in the least power consumption (draws less than 1mA)
+SLEEPMODES sleepmode = OFF;
 
 // Audio output stuff
+const int outputSampleDelayTime = 1000000 / (AUD_OUT_SAMPLE_FREQ * AUD_OUT_UPSAMPLE_RATIO);
+
 volatile short outputSampleBuffer[AUD_OUT_SAMPLE_FREQ * AUD_OUT_TIME];
 volatile int outputSampleBufferPtr = 0;
-const int outputSampleDelayTime = 1000000 / (AUD_OUT_SAMPLE_FREQ * AUD_OUT_UPSAMPLE_RATIO);
-//const int outputSampleDelayTime = 1000000 / AUD_OUT_SAMPLE_FREQ;
+
 volatile int playbackSampleCount = AUD_OUT_SAMPLE_FREQ * AUD_OUT_TIME;
 
 volatile int nextOutputSample = 0;
@@ -53,20 +67,21 @@ volatile int nextOutputSample = 0;
 const int sincTableSizeUp = (2 * AUD_OUT_UPSAMPLE_FILTER_SIZE + 1) * AUD_OUT_UPSAMPLE_RATIO - AUD_OUT_UPSAMPLE_RATIO + 1;
 float sincFilterTableUpsample[sincTableSizeUp];
 
-    // circular input buffer for upsampling
+// circular input buffer for upsampling
 volatile short upsampleInput[sincTableSizeUp];
-volatile int upsampleInputPtr = 0;
-volatile int upsampleInputC = 0;
+volatile int upsampleInputPtr = 0;  // next position in upsample input buffer
+volatile int upsampleInputC = 0;  // upsample count
 
-char playback_filename[9] = "BMSB.PAD";
-
+// used for reading and writing data
 File data;
 
+// object for interacting with rtc
 RTC_DS3231 rtc;
 
+// SAMD timer interrupt
 SAMDTimer ITimer(TIMER_TC3);
 
-// Functions to start and stop the ISR timer (these are passed to the main Pied Piper class)
+/* Functions to start and stop the ISR timer */
 void stopISRTimer()
 {
   ITimer.detachInterrupt();
@@ -78,6 +93,7 @@ void startISRTimer(const unsigned long interval_us, void(*fnPtr)())
   ITimer.attachInterruptInterval(interval_us, fnPtr);
 }
 
+// data structure for storing operation times
 struct opTime {
   short hour;
   short minute;
@@ -87,19 +103,18 @@ struct opTime {
 opTime* operationTimes = NULL;
 int numOperationTimes = 0;
 
-volatile bool operationSet = 0;
-
+/* Initialization routine */
 void setup() {
   Serial.begin(2000000);
-  //analogReadResolution(12);
   analogWriteResolution(12);
-  delay(4000);
+  // delay(4000); // this delay is not needed, however it provides some time to open Serial monitor for debugging
 
   Serial.println("\nInitializing");
 
   // configure pin modes
   configurePins();
 
+  // read playback sound and playback intervals
   digitalWrite(HYPNOS_3VR, LOW);
 
   Serial.println("initializing SD");
@@ -110,12 +125,17 @@ void setup() {
     initializationFailFlash();
   }
 
+  
   char playback_sound_dir[20];
   sprintf(playback_sound_dir, "/PBAUD/%s", playback_filename);
   Serial.printf("Playback filename: %s\n", playback_filename);
   // Verify that the SD card has all the required files and the correct directory structure.
   if (SD.exists(playback_sound_dir)) Serial.println("SD card has correct directory structure.");
-  else Serial.println("WARNING: SD card does not have the correct directory structure.");
+  else {
+    Serial.println("WARNING: SD card does not have the correct directory structure.");
+    SD.end();
+    initializationFailFlash();
+  }
 
   SD.end();
 
@@ -139,12 +159,13 @@ void setup() {
   Serial.println(date);
 
   // reset rtc alarms
-
   rtc.clearAlarm(1);
   rtc.clearAlarm(2);
 
+  // set RTC !INT/SQR pin to interrupt mode
   rtc.writeSqwPinMode(DS3231_OFF);
 
+  // disable alarm 2 since we are not using it
   rtc.disableAlarm(2);
 
   // end wire, turn off 3v rail
@@ -161,7 +182,7 @@ void setup() {
   }
 
   // load sound
-  if (!LoadSound(playback_filename)) {
+  if (!LoadSound((char*)playback_filename)) {
     Serial.println("Reading playback sound from SD failed!");
     initializationFailFlash();
   }
@@ -170,97 +191,43 @@ void setup() {
   startISRTimer(outputSampleDelayTime, OutputUpsampledSample);
   stopISRTimer();
 
+  // perform setup playback to confirm that Playback() is working (just a precaution, can be commented out)
   Serial.println("Performing setup playback");
   Playback();
-
-  PM->SLEEPCFG.bit.SLEEPMODE = sleepmode;
-  while(PM->SLEEPCFG.bit.SLEEPMODE != sleepmode);
-
-  // setup pin interrupt for RTC alarm
-  attachWakeUpISR();
-  detachWakeUpISR();
 
   Serial.println("Setup complete");
   Serial.println();
 
-  delay(1000);
-}
-
-void loop() {
-  
-  // set alarm
-  bool performPlayback = setupOperation();
-
-  // keep performing playback until alarm is triggered
-  while (performPlayback) {
-    Playback();
-    // check if alarm was triggered via operationSet flag
-    if (!operationSet) {
-      // set next alarm
-      setupOperation();
-      break;
-    }
+  // setupOperation() returns true if the RTC time is within an operation interval,
+  // otherwise, returns false. This is also where RTC alarm is set based on time.
+  if (!setupOperation()) {
+    goToSleep(sleepmode);
   }
-
-  //uint32_t nowTime = getRTCTime();
-
-  goToSleep();
-
-  //CODE STARTS HERE AFTER SLEEP!
-
-  //uint32_t sleepTime = getRTCTime() - nowTime;
-
-  initUSBDevice();
-
-  // Serial.println();
-  // Serial.print("I slept for ");
-  // Serial.print(sleepTime);
-  // Serial.println(" seconds");
 }
 
-// attach RTC alarm pin
-void attachWakeUpISR() {
-  attachInterrupt(digitalPinToInterrupt(SLEEP_INT), wakeUpISR, CHANGE);
+/* Continously call Playback() in loop. */
+void loop() {
+  Playback();
+  // may add option to add delay between playbacks in the future (will likely be set in PBINT.txt)
 }
 
-// detach RTC alarm pin
-void detachWakeUpISR() {
-  detachInterrupt(digitalPinToInterrupt(SLEEP_INT));
-}
-
-// RTC alarm interrupt function
-void wakeUpISR() {
-  operationSet = 0;
-}
-
-// general procedure for going to sleep
-void goToSleep() {
+/* Put device to sleep in selected sleep mode */
+void goToSleep(SLEEPMODES mode) {
   Serial.println("Going to sleep");
 
+  // end USB Serial, probably can be commented out
   USBDevice.detach();
   USBDevice.end();
-  USBDevice.standby();
 
-  PM->SLEEPCFG.bit.SLEEPMODE = sleepmode;
-  while(PM->SLEEPCFG.bit.SLEEPMODE != sleepmode);
-
-  // PM->STDBYCFG.bit.RAMCFG = 0x2;
-  // while(PM->STDBYCFG.bit.RAMCFG != 0x2);
-
-  // PM->STDBYCFG.bit.FASTWKUP = 0x0;
-  // while(PM->STDBYCFG.bit.FASTWKUP != 0x0);
+  PM->SLEEPCFG.bit.SLEEPMODE = mode;
+  while(PM->SLEEPCFG.bit.SLEEPMODE != mode);
 
   // enable sleep
   __DSB();
   __WFI();
 }
 
-void initUSBDevice() {
-  USBDevice.init();
-  USBDevice.attach();
-  delay(3000);
-}
-
+/* Returns RTC time */
 uint32_t getRTCTime() {
   uint32_t timeSeconds;
 
@@ -275,22 +242,22 @@ uint32_t getRTCTime() {
   return timeSeconds;
 }
 
+/* Set pin modes */
 void configurePins() {
   pinMode(AUD_OUT, OUTPUT);
   pinMode(HYPNOS_5VR, OUTPUT);
   pinMode(HYPNOS_3VR, OUTPUT);
   pinMode(SD_CS, OUTPUT);  
   pinMode(AMP_SD, OUTPUT);
-  pinMode(SLEEP_INT, INPUT_PULLUP);
 }
 
-// load operation times from "PBINT.txt"
+/* load operation times from "PBINT.txt" */
 bool LoadOperationTimes() {
 
   char dir[17];
-
   strcpy(dir, "/PBINT/PBINT.txt");
 
+  // begin communication with SD
   ResetSPI();
   digitalWrite(HYPNOS_3VR, LOW);
 
@@ -304,6 +271,7 @@ bool LoadOperationTimes() {
     return false;
   }
 
+  // open PBINT.txt for reading
   data = SD.open(dir, FILE_READ);
 
   if (!data) {
@@ -333,6 +301,7 @@ bool LoadOperationTimes() {
   return true;
 }
 
+/* allocate memory and store operation time */
 void addOperationTime(int hour, int minute) {
   numOperationTimes += 1;
   operationTimes = (opTime*)realloc(operationTimes, numOperationTimes * sizeof(opTime));
@@ -342,14 +311,18 @@ void addOperationTime(int hour, int minute) {
 }
 
 
-// setup RTC alarm based on current time
+/* Set RTC alarm to the corresponding operation time. If RTC time is within an operation interval,
+ RTC alarm is set to the end of this operation interval and function returns True. Otherwise,
+ RTC alarm is set to the start of the next operation interval and function returns False. */
 bool setupOperation() {
-  detachWakeUpISR();
+  // perform playback continously
+  if (DEFAULT_PLAYBACK_INT == 0) return 1;
 
   // get the current time from RTC
   digitalWrite(HYPNOS_3VR, LOW);
   Wire.begin();
 
+  Serial.printf("The current temperature is: %.1f\n", rtc.getTemperature());
   DateTime nowDT = rtc.now();
 
   rtc.clearAlarm(1);
@@ -357,7 +330,7 @@ bool setupOperation() {
   Wire.end();
   digitalWrite(HYPNOS_3VR, HIGH);
 
-  // for now all operations are the same for this time of day
+  // for now all operations are the same for any given day
   int nowMinutes = nowDT.hour() * 60 + nowDT.minute();
   int nowSecond = nowDT.second();
 
@@ -365,9 +338,9 @@ bool setupOperation() {
 
   bool performPlayback = 0;
 
-  // Device will wake once every 24 hours if no operation times are defined
+  // Device will wake once every DEFAULT_PLAYBACK_INT minutes if no operation times are defined
   if (numOperationTimes != 0) {
-    // check if current time is within an operation time
+    // check if RTC time is within time of operation interval
     for (int i = 0; i < numOperationTimes - 1; i += 2) {
       //Serial.printf("Now: %d, Start: %d, End: %d\n", nowMinutes, operationTimes[i].minutes, operationTimes[i + 1].minutes);
       if (nowMinutes >= operationTimes[i].minutes && nowMinutes < operationTimes[i + 1].minutes) {
@@ -378,7 +351,7 @@ bool setupOperation() {
       }
     }
 
-    // if current time is not within operation time then set to next available operation time
+    // if the current time is not within an operation time then set to next available operation time
     if (!performPlayback) {
       for (int i = 0; i < numOperationTimes - 1; i += 2) {
         if (operationTimes[i].minutes > nowMinutes) {
@@ -388,12 +361,12 @@ bool setupOperation() {
       }
     }
 
-    // if nextAlarmTime wasn't set, then set to first operation time
+    // if nextAlarmTime wasn't set, then set to first operation time (24 hour wrap)
     if (nextAlarmTime == -1) {
       nextAlarmTime = 1440 - nowMinutes + operationTimes[0].minutes;
     }
-  } else {
-    nextAlarmTime = 1440;
+  } else { // if no operation times are defined, wake up every DEFAULT_PLAYBACK_INT minutes
+    nextAlarmTime = DEFAULT_PLAYBACK_INT;
   }
 
   if (nextAlarmTime < 60) Serial.printf("Next alarm will happen in %d minutes", nextAlarmTime);
@@ -408,25 +381,19 @@ bool setupOperation() {
       nowDT + TimeSpan(nextAlarmTime * 60 - nowSecond),
       DS3231_A1_Hour // this mode triggers the alarm when the hours, minutes and seconds match
   )) {
-    Serial.println("Error, alarm wasn't set!");
+    Serial.println("ERROR: alarm was not set!");
   }
 
   Wire.end();
   digitalWrite(HYPNOS_3VR, HIGH);
 
-  // attach interrupt
-  attachWakeUpISR();
-
-  // set flag
-  operationSet = 1;
-
-  // return true if it is time for playback
+  // returns true if RTC time is within an operation interval
   return performPlayback;
 }
 
-// Loads sound data from the SD card into the audio output buffer. Once loaded, the data will
-// remain in-place until LoadSound is called again. This means that all future calls to 
-// Playback will play back the same audio data.
+/* Loads sound data from the SD card into the audio output buffer. Once loaded, the data will
+ remain in-place until LoadSound is called again. This means that all future calls to 
+ Playback will play back the same audio data. */
 bool LoadSound(char* fname) {
   ResetSPI(); 
   digitalWrite(HYPNOS_3VR, LOW);
@@ -455,8 +422,6 @@ bool LoadSound(char* fname) {
   //Serial.println("Directory found. Opening file...");
 
   data = SD.open(dir, FILE_READ);
-
-
 
   if (!data) {
     //Serial.print("LoadSound failed: file ");
@@ -490,16 +455,16 @@ bool LoadSound(char* fname) {
   return true;
 }
 
-// Plays back a female mating call using the vibration exciter
+/* Plays back the sound loaded on SD card using the vibration exciter */
 void Playback() {
   stopISRTimer();
 
   //Serial.println("Enabling amplifier...");
 
-  digitalWrite(HYPNOS_5VR, HIGH);
-  analogWrite(AUD_OUT, 2048);
-  digitalWrite(AMP_SD, HIGH);
-  delay(100);
+  digitalWrite(HYPNOS_5VR, HIGH); // enable 5VR
+  analogWrite(AUD_OUT, 2048);     // set AUD_OUT to 2048 (3.3V / 2)
+  digitalWrite(AMP_SD, HIGH);     // enable amplifier
+  delay(100);                     // short delay for low pass filter
 
   //Serial.println("Amplifier enabled. Beginning playback ISR...");
 
@@ -513,14 +478,14 @@ void Playback() {
 
   outputSampleBufferPtr = 0;
 
-  digitalWrite(AMP_SD, LOW);
-  analogWrite(AUD_OUT, 0);
-  digitalWrite(HYPNOS_5VR, LOW);
+  digitalWrite(AMP_SD, LOW);    // disable amplifier
+  analogWrite(AUD_OUT, 0);      // set AUD_OUT to 0V
+  digitalWrite(HYPNOS_5VR, LOW);  // disable 5VR
 
   //Serial.println("Amplifer shut down.");
 }
 
-
+/* Upsamples playback sound and writes upsampled sample to AUD_OUT */
 void OutputUpsampledSample() {
   analogWrite(AUD_OUT, nextOutputSample);
 
@@ -547,8 +512,8 @@ void OutputUpsampledSample() {
 }
 
 
-// calculates sinc filter table for upsampling a signal by @ratio
-// @nz is the number of zeroes to use for the table
+/* Calculates sinc filter table for upsampling a signal by @ratio
+ @nz is the number of zeroes to use for the table */
 void calculateUpsampleSincFilterTable() {
   int ratio = AUD_OUT_UPSAMPLE_RATIO;
   int nz = AUD_OUT_UPSAMPLE_FILTER_SIZE;
@@ -575,6 +540,7 @@ void calculateUpsampleSincFilterTable() {
   }
 }
 
+/* Reset SPI pins, called prior to SPI.begin() as a precaution */
 void ResetSPI() {
   pinMode(23, INPUT);
   pinMode(24, INPUT);
@@ -587,6 +553,7 @@ void ResetSPI() {
   pinMode(10, OUTPUT);
 }
 
+/* Attempts to initialize SD card on Hypnos */
 bool BeginSD() {
   for (int i = 0; i < SD_OPEN_ATTEMPT_COUNT; i++) {
     if (SD.begin(SD_CS)) return true;
@@ -598,6 +565,7 @@ bool BeginSD() {
   return false;
 }
 
+/* Flashes Hypnos 3VR LED to indicate initialization error */
 void initializationFailFlash() {
   while(1) {
     digitalWrite(HYPNOS_3VR, LOW);
