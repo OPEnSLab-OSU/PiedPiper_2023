@@ -1,11 +1,17 @@
 /*
   This code is for stripped down version of Pied Piper which performs intermittent playbacks based on operation intervals
   stored on the SD card. The code performs in the following manner:
-    1. In setup: all necassary data is loaded from the SD card, such as the playback sound (*.PAD) and playback intervals (PBINT.txt). 
-        If all data is successfully loaded from the SD card, the RTC can be initialized and setup to fire an interrupt when RTC alarm
-        goes off. Following this, the RTC alarm is based on the playback intervals and current RTC time. The device will go to sleep if
-        the current time is not within a playback interval and will reset once RTC alarm fires. Otherwise, proceeds to loop.
-    2. In loop: Playback() is called continously. Device will reset once RTC alarm fires.
+    1. In setup(): all necassary data is loaded from the SD card, such as the playback sound (*.PAD) and playback intervals 
+        (PBINT.txt). If all data is successfully loaded from the SD card and RTC is initialized, then RTC alarm is set to reset
+        the device when the alarm goes off. The alarm is set based on the following conditions:
+          a. The current time is within the time of a playback interval - the alarm is set to fire at the time corresponding 
+              to the end of the current playback interval (i.e: if playback interval is between 5:00 and 6:00, the alarm will fire
+              at 6:00). The device will perform the tasks assigned in loop() until the RTC alarm goes off.
+          b. The current time is not is not within a playback interval - the alarm is set to fire at the time corresponding to the
+              next available operation interval (i.e. if the next available playback interval is between 7:00 and 8:00, the alarm will
+              fire at 7:00). The device will sleep in the "OFF" mode until RTC alarm goes off.
+    2. In loop(): At this moment Playback() is called continously which continously performs playback, but more tasks can be added in
+        future versions.
 */
 
 #include <Arduino.h>
@@ -22,7 +28,7 @@ const char playback_filename[] = "BMSB.PAD";
 #define AUD_OUT_TIME 8  // maximum length of playback file in seconds
 
 #define AUD_OUT_UPSAMPLE_RATIO 8 // sinc filter upsample ratio, ideally should be a power of 2
-#define AUD_OUT_UPSAMPLE_FILTER_SIZE 10 // // upsample sinc filter number of zero crossings, more crossings will produce a cleaner result but will also use more processor time 
+#define AUD_OUT_UPSAMPLE_FILTER_SIZE 7 // // upsample sinc filter number of zero crossings, more crossings will produce a cleaner result but will also use more processor time 
 
 #define SD_OPEN_ATTEMPT_COUNT 10  // number of times to retry SD.begin()
 #define SD_OPEN_RETRY_DELAY_MS 100  // delay between SD.begin() attempt
@@ -54,16 +60,24 @@ enum SLEEPMODES
 SLEEPMODES sleepmode = OFF;
 
 // Audio output stuff
+
+// output sample delay time, essentially how often the timer interrupt will fire (in microseconds)
 const int outputSampleDelayTime = 1000000 / (AUD_OUT_SAMPLE_FREQ * AUD_OUT_UPSAMPLE_RATIO);
 
-volatile short outputSampleBuffer[AUD_OUT_SAMPLE_FREQ * AUD_OUT_TIME];
-volatile int outputSampleBufferPtr = 0;
+// output sample buffer stores the values corresponding to the playback file that is loaded from the SD card
+short outputSampleBuffer[AUD_OUT_SAMPLE_FREQ * AUD_OUT_TIME];
+volatile int outputSampleBufferPtr = 0; // stores the position of the current sample for playback
 
-volatile int playbackSampleCount = AUD_OUT_SAMPLE_FREQ * AUD_OUT_TIME;
+// stores the total number of samples loaded from the playback file. 
+// Originally, this is set to the maximum number of samples that can be stored (SAMPLE_RATE * AUD_OUT_TIME),
+// but since our playback file will not always be exactly AUD_OUT_TIME seconds, this value
+// will change when LoadSound() is called.
+int playbackSampleCount = AUD_OUT_SAMPLE_FREQ * AUD_OUT_TIME;
 
+// stores the value of the next output sample for analogWrite()
 volatile int nextOutputSample = 0;
 
-// sinc filter for upsampling
+// stores values of sinc function (sin(x) / x) for upsampling the samples stored in outputSampleBuffer during Playback()
 const int sincTableSizeUp = (2 * AUD_OUT_UPSAMPLE_FILTER_SIZE + 1) * AUD_OUT_UPSAMPLE_RATIO - AUD_OUT_UPSAMPLE_RATIO + 1;
 float sincFilterTableUpsample[sincTableSizeUp];
 
@@ -72,13 +86,13 @@ volatile short upsampleInput[sincTableSizeUp];
 volatile int upsampleInputPtr = 0;  // next position in upsample input buffer
 volatile int upsampleInputC = 0;  // upsample count
 
-// used for reading and writing data
+/* used for reading and writing data */
 File data;
 
-// object for interacting with rtc
+/* object for interacting with rtc */
 RTC_DS3231 rtc;
 
-// SAMD timer interrupt
+/* SAMD timer interrupt */
 SAMDTimer ITimer(TIMER_TC3);
 
 /* Functions to start and stop the ISR timer */
@@ -93,18 +107,24 @@ void startISRTimer(const unsigned long interval_us, void(*fnPtr)())
   ITimer.attachInterruptInterval(interval_us, fnPtr);
 }
 
-// data structure for storing operation times
+/* Variables related to storing data read from operation intervals file (PBINT.txt) */
+
+// data structure for storing operation times parsed from the PBINT.txt file on SD card
 struct opTime {
   short hour;
   short minute;
   int minutes;
 };
 
+// *operationTimes is a dynamically allocated array which stores parsed operation times from PBINT.txt
+// Dynamic memory is used for this because we do not know how many operation times are defined in PBINT.txt during compilation
 opTime* operationTimes = NULL;
+// the number of elements in operationTimes array
 int numOperationTimes = 0;
 
 /* Initialization routine */
 void setup() {
+  // begin Serial, and ensure that our analogWrite() resolution is set to the maximum resolution (2^12 == 4096)
   Serial.begin(2000000);
   analogWriteResolution(12);
   // delay(4000); // this delay is not needed, however it provides some time to open Serial monitor for debugging
@@ -114,9 +134,8 @@ void setup() {
   // configure pin modes
   configurePins();
 
-  // read playback sound and playback intervals
+  // turn on 3VR rail
   digitalWrite(HYPNOS_3VR, LOW);
-
   Serial.println("initializing SD");
 
   // Verify that SD can be initialized; stop the program if it can't.
@@ -124,21 +143,9 @@ void setup() {
     Serial.println("SD failed to initialize.");
     initializationFailFlash();
   }
-
-  
-  char playback_sound_dir[20];
-  sprintf(playback_sound_dir, "/PBAUD/%s", playback_filename);
-  Serial.printf("Playback filename: %s\n", playback_filename);
-  // Verify that the SD card has all the required files and the correct directory structure.
-  if (SD.exists(playback_sound_dir)) Serial.println("SD card has correct directory structure.");
-  else {
-    Serial.println("WARNING: SD card does not have the correct directory structure.");
-    SD.end();
-    initializationFailFlash();
-  }
-
   SD.end();
 
+  // Initialize I2C communication
   Wire.begin();
 
   // Initialize RTC
@@ -148,11 +155,13 @@ void setup() {
   }
 
   // Check if RTC lost power; adjust the clock to the compilation time if it did.
+  // Ideally, the RTC will adjust the time based on the actual time of day, rather than the compilation time of the sketch
   if (rtc.lostPower()) {
     Serial.println("RTC lost power, adjusting...");
     rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
   }
 
+  // printing the current RTC time for debugging purposes (doing this is not necassary)
   char date[10] = "hh:mm:ss";
   rtc.now().toString(date);
   Serial.print("Current RTC Time: ");
@@ -168,26 +177,29 @@ void setup() {
   // disable alarm 2 since we are not using it
   rtc.disableAlarm(2);
 
-  // end wire, turn off 3v rail
+  // RTC initialization done, end wire and turn off 3v rail
   Wire.end();
   digitalWrite(HYPNOS_3VR, HIGH);
 
-  // calculate sinc filter for upsampling
+  // calculate sinc filter table for upsampling values stored in outputSampleBuffer
   calculateUpsampleSincFilterTable();
   
-  // load operations
+  // load operation times from PBINT.txt file stored on SD card, parses and stores operation times into 
+  // dynamically allocated array: opTimes *operationTimes
+  // returns False upon failure and initiates fail flash
   if (!LoadOperationTimes()) {
-    Serial.println("Reading operation times from SD failed");
+    Serial.println("Reading operation times from SD failed!");
     initializationFailFlash();
   }
 
-  // load sound
+  // load playback sound from SD card and stores values to outputSampleBuffer
+  // returns False upon failure and initiates fail flash
   if (!LoadSound((char*)playback_filename)) {
     Serial.println("Reading playback sound from SD failed!");
     initializationFailFlash();
   }
 
-  // enable disable isr timer
+  // enable and disable isr timer for initial setup of timer interrupt
   startISRTimer(outputSampleDelayTime, OutputUpsampledSample);
   stopISRTimer();
 
@@ -205,7 +217,7 @@ void setup() {
   }
 }
 
-/* Continously call Playback() in loop. */
+/* Tasks to perform when device is awake */
 void loop() {
   Playback();
   // may add option to add delay between playbacks in the future (will likely be set in PBINT.txt)
@@ -219,15 +231,16 @@ void goToSleep(SLEEPMODES mode) {
   USBDevice.detach();
   USBDevice.end();
 
+  // ensure that the correct sleep mode is set
   PM->SLEEPCFG.bit.SLEEPMODE = mode;
   while(PM->SLEEPCFG.bit.SLEEPMODE != mode);
 
-  // enable sleep
+  // go to sleep by disabling serial bus (__DSB) and calling wait for interrupt (__WFI)
   __DSB();
   __WFI();
 }
 
-/* Returns RTC time */
+/* Returns the current RTC time */
 uint32_t getRTCTime() {
   uint32_t timeSeconds;
 
@@ -303,8 +316,11 @@ bool LoadOperationTimes() {
 
 /* allocate memory and store operation time */
 void addOperationTime(int hour, int minute) {
+  // increment size of operatimesTimes array
   numOperationTimes += 1;
+  // reallocate memory for new array size
   operationTimes = (opTime*)realloc(operationTimes, numOperationTimes * sizeof(opTime));
+  // store data
   operationTimes[numOperationTimes - 1].hour = hour;
   operationTimes[numOperationTimes - 1].minute = minute;
   operationTimes[numOperationTimes - 1].minutes = hour * 60 + minute;
@@ -315,14 +331,14 @@ void addOperationTime(int hour, int minute) {
  RTC alarm is set to the end of this operation interval and function returns True. Otherwise,
  RTC alarm is set to the start of the next operation interval and function returns False. */
 bool setupOperation() {
-  // perform playback continously
+  // perform playback continously if DEFAULT_PLAYBACK_INT is 0
   if (DEFAULT_PLAYBACK_INT == 0) return 1;
 
   // get the current time from RTC
   digitalWrite(HYPNOS_3VR, LOW);
   Wire.begin();
 
-  Serial.printf("The current temperature is: %.1f\n", rtc.getTemperature());
+  // Serial.printf("The current temperature is: %.1f\n", rtc.getTemperature());
   DateTime nowDT = rtc.now();
 
   rtc.clearAlarm(1);
@@ -330,54 +346,65 @@ bool setupOperation() {
   Wire.end();
   digitalWrite(HYPNOS_3VR, HIGH);
 
-  // for now all operations are the same for any given day
+  // convert the current time to minutes (0 - 1440)
   int nowMinutes = nowDT.hour() * 60 + nowDT.minute();
   int nowSecond = nowDT.second();
 
+  // stores the difference between current time and next alarm time for setting RTC alarm
   int nextAlarmTime = -1;
 
+  // final return value, indicating whether or not playback should be performed
   bool performPlayback = 0;
 
   // Device will wake once every DEFAULT_PLAYBACK_INT minutes if no operation times are defined
-  if (numOperationTimes != 0) {
+  if (numOperationTimes == 0) {
+    nextAlarmTime = DEFAULT_PLAYBACK_INT;
+  // Otherwise, alarm will be set based on the current operation interval
+  } else {
     // check if RTC time is within time of operation interval
     for (int i = 0; i < numOperationTimes - 1; i += 2) {
       //Serial.printf("Now: %d, Start: %d, End: %d\n", nowMinutes, operationTimes[i].minutes, operationTimes[i + 1].minutes);
       if (nowMinutes >= operationTimes[i].minutes && nowMinutes < operationTimes[i + 1].minutes) {
         Serial.println("Performing playback...");
+        // if within an operation interval, then playback will be performed
         performPlayback = 1;
+        // the next alarm time is the difference between the end of this operation time and the current time (in minutes)
         nextAlarmTime = operationTimes[i + 1].minutes - nowMinutes;
         break;
       }
     }
 
-    // if the current time is not within an operation time then set to next available operation time
+    // if the current time is not within an operation time then set nextAlarmTime to the next available operation time
     if (!performPlayback) {
       for (int i = 0; i < numOperationTimes - 1; i += 2) {
+        // the next available operation time is determined when the start of an operation interval exceeds the current time (in minutes)
         if (operationTimes[i].minutes > nowMinutes) {
+          // the next alarm time is the difference between the start of the next operation interval and the current time
           nextAlarmTime = operationTimes[i].minutes - nowMinutes;
           break;
         }
       }
     }
 
-    // if nextAlarmTime wasn't set, then set to first operation time (24 hour wrap)
+    // if nextAlarmTime wasn't set (if no operation times exist after the current time), then set to first operation time (24 hour wrap)
     if (nextAlarmTime == -1) {
+      // next alarm time is the difference between the current time and the first available operation time
       nextAlarmTime = 1440 - nowMinutes + operationTimes[0].minutes;
     }
-  } else { // if no operation times are defined, wake up every DEFAULT_PLAYBACK_INT minutes
-    nextAlarmTime = DEFAULT_PLAYBACK_INT;
   }
 
+  // prints when the next alarm will occur
   if (nextAlarmTime < 60) Serial.printf("Next alarm will happen in %d minutes", nextAlarmTime);
   else  Serial.printf("Next alarm will happen in %d hours and %d minutes", nextAlarmTime / 60, nextAlarmTime % 60);
   Serial.println();
 
-  // schedule an alarm totalMinutes in the future
+  // schedule RTC alarm totalMinutes into the future
   digitalWrite(HYPNOS_3VR, LOW);
   Wire.begin();
 
   if(!rtc.setAlarm1(
+      // TimeSpan() accepts seconds as argument. Therefore convert nextAlarmTime to seconds by multiplying by 60
+      // subtracting the current seconds isn't necassary, but helps to ensure that alarm goes of exactly at the minute mark 
       nowDT + TimeSpan(nextAlarmTime * 60 - nowSecond),
       DS3231_A1_Hour // this mode triggers the alarm when the hours, minutes and seconds match
   )) {
@@ -391,9 +418,9 @@ bool setupOperation() {
   return performPlayback;
 }
 
-/* Loads sound data from the SD card into the audio output buffer. Once loaded, the data will
- remain in-place until LoadSound is called again. This means that all future calls to 
- Playback will play back the same audio data. */
+/* Loads playback sound file from the SD card into the audio output buffer as samples. 
+ Once loaded, the data will remain in-place until LoadSound() is called again. This means
+ that all future calls to Playback() will play back the same audio data. */
 bool LoadSound(char* fname) {
   ResetSPI(); 
   digitalWrite(HYPNOS_3VR, LOW);
@@ -464,7 +491,7 @@ void Playback() {
   digitalWrite(HYPNOS_5VR, HIGH); // enable 5VR
   analogWrite(AUD_OUT, 2048);     // set AUD_OUT to 2048 (3.3V / 2)
   digitalWrite(AMP_SD, HIGH);     // enable amplifier
-  delay(100);                     // short delay for low pass filter
+  delay(100);                     // short delay for analog low pass filter
 
   //Serial.println("Amplifier enabled. Beginning playback ISR...");
 
