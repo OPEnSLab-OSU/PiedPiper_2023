@@ -1,6 +1,6 @@
 /*
-  This code is for stripped down version of Pied Piper which performs intermittent playbacks based on operation intervals
-  stored on the SD card. The code performs in the following manner:
+  This code is intended for stripped down version of Pied Piper which performs intermittent playbacks based on operation intervals
+  that are stored on the SD card. The code performs in the following manner:
     1. In setup(): all necassary data is loaded from the SD card, such as the playback sound (*.PAD) and playback intervals 
         (PBINT.txt). If all data is successfully loaded from the SD card and RTC is initialized, then RTC alarm is set to reset
         the device when the alarm goes off. The alarm is set based on the following conditions:
@@ -24,19 +24,19 @@
 // name of the file used for playback
 const char playback_filename[] = "BMSB.PAD";
 
-#define AUD_OUT_SAMPLE_FREQ 4096
+#define AUD_OUT_SAMPLE_FREQ 4096  // original sample rate of playback file
 #define AUD_OUT_TIME 8  // maximum length of playback file in seconds
 
-#define AUD_OUT_UPSAMPLE_RATIO 8 // sinc filter upsample ratio, ideally should be a power of 2
-#define AUD_OUT_UPSAMPLE_FILTER_SIZE 7 // // upsample sinc filter number of zero crossings, more crossings will produce a cleaner result but will also use more processor time 
+#define SINC_FILTER_UPSAMPLE_RATIO 8 // sinc filter upsample ratio, ideally should be a power of 2
+#define SINC_FILTER_NUM_ZEROES 7    // sinc filter number of zero crossings, more crossings will produce a cleaner result but will also use more processor time 
 
 #define SD_OPEN_ATTEMPT_COUNT 10  // number of times to retry SD.begin()
-#define SD_OPEN_RETRY_DELAY_MS 100  // delay between SD.begin() attempt
+#define SD_OPEN_RETRY_DELAY_MS 100  // delay between SD.begin() attempts
 
 #define AUD_OUT A0    // Audio output pin
 
-#define HYPNOS_5VR 6
-#define HYPNOS_3VR 5
+#define HYPNOS_5VR 6  // Hypnos 5 volt rail
+#define HYPNOS_3VR 5  // Hypnos 3 volt rail
 
 #define SD_CS 11 // Chip select for SD
 #define AMP_SD 9  // Amplifier enable
@@ -56,17 +56,17 @@ enum SLEEPMODES
   OFF = 0x7         // OFF sleep mode can only be exited with a device reset (best sleep mode for power consumption)
 };
 
-// For this version, we are using the OFF sleep mode which results in the least power consumption (draws less than 1mA)
+// For this version, "OFF" sleep mode is used which results in the least power consumption (draws less than 1mA)
 SLEEPMODES sleepmode = OFF;
 
-// Audio output stuff
+/* Variables related to audio output */
 
 // output sample delay time, essentially how often the timer interrupt will fire (in microseconds)
-const int outputSampleDelayTime = 1000000 / (AUD_OUT_SAMPLE_FREQ * AUD_OUT_UPSAMPLE_RATIO);
+const int outputSampleDelayTime = 1000000 / (AUD_OUT_SAMPLE_FREQ * SINC_FILTER_UPSAMPLE_RATIO);
 
 // output sample buffer stores the values corresponding to the playback file that is loaded from the SD card
 short outputSampleBuffer[AUD_OUT_SAMPLE_FREQ * AUD_OUT_TIME];
-volatile int outputSampleBufferPtr = 0; // stores the position of the current sample for playback
+volatile int outputSampleBufferIdx = 0; // stores the position of the current sample for playback
 
 // stores the total number of samples loaded from the playback file. 
 // Originally, this is set to the maximum number of samples that can be stored (SAMPLE_RATE * AUD_OUT_TIME),
@@ -74,19 +74,16 @@ volatile int outputSampleBufferPtr = 0; // stores the position of the current sa
 // will change when LoadSound() is called.
 int playbackSampleCount = AUD_OUT_SAMPLE_FREQ * AUD_OUT_TIME;
 
-// stores the value of the next output sample for analogWrite()
-volatile int nextOutputSample = 0;
-
 // stores values of sinc function (sin(x) / x) for upsampling the samples stored in outputSampleBuffer during Playback()
-const int sincTableSizeUp = (2 * AUD_OUT_UPSAMPLE_FILTER_SIZE + 1) * AUD_OUT_UPSAMPLE_RATIO - AUD_OUT_UPSAMPLE_RATIO + 1;
+const int sincTableSizeUp = (2 * SINC_FILTER_NUM_ZEROES + 1) * SINC_FILTER_UPSAMPLE_RATIO - SINC_FILTER_UPSAMPLE_RATIO + 1;
 float sincFilterTableUpsample[sincTableSizeUp];
 
 // circular input buffer for upsampling
-volatile short upsampleInput[sincTableSizeUp];
-volatile int upsampleInputPtr = 0;  // next position in upsample input buffer
-volatile int upsampleInputC = 0;  // upsample count
+volatile short upsampleFilterInput[sincTableSizeUp];
+volatile int upsampleInputIdx = 0;  // next position in upsample input buffer
+volatile int upsampleInputCount = 0;  // upsample count
 
-/* used for reading and writing data */
+/* used for reading files from SD */
 File data;
 
 /* object for interacting with rtc */
@@ -107,7 +104,7 @@ void startISRTimer(const unsigned long interval_us, void(*fnPtr)())
   ITimer.attachInterruptInterval(interval_us, fnPtr);
 }
 
-/* Variables related to storing data read from operation intervals file (PBINT.txt) */
+/* Variables related to storing data that is read from operation intervals file (PBINT.txt) */
 
 // data structure for storing operation times parsed from the PBINT.txt file on SD card
 struct opTime {
@@ -127,16 +124,16 @@ void setup() {
   // begin Serial, and ensure that our analogWrite() resolution is set to the maximum resolution (2^12 == 4096)
   Serial.begin(2000000);
   analogWriteResolution(12);
-  // delay(4000); // this delay is not needed, however it provides some time to open Serial monitor for debugging
+  delay(4000); // this delay is not needed, however it provides some time to open Serial monitor for debugging
 
-  Serial.println("\nInitializing");
+  Serial.println("\nInitializing...");
 
   // configure pin modes
   configurePins();
 
   // turn on 3VR rail
   digitalWrite(HYPNOS_3VR, LOW);
-  Serial.println("initializing SD");
+  Serial.println("Initializing SD...");
 
   // Verify that SD can be initialized; stop the program if it can't.
   if (!BeginSD()) {
@@ -147,6 +144,8 @@ void setup() {
 
   // Initialize I2C communication
   Wire.begin();
+
+  Serial.println("Initializing RTC...");
 
   // Initialize RTC
   if (!rtc.begin()) {
@@ -164,8 +163,7 @@ void setup() {
   // printing the current RTC time for debugging purposes (doing this is not necassary)
   char date[10] = "hh:mm:ss";
   rtc.now().toString(date);
-  Serial.print("Current RTC Time: ");
-  Serial.println(date);
+  Serial.printf("Current RTC Time: %s\n", date);
 
   // reset rtc alarms
   rtc.clearAlarm(1);
@@ -180,9 +178,6 @@ void setup() {
   // RTC initialization done, end wire and turn off 3v rail
   Wire.end();
   digitalWrite(HYPNOS_3VR, HIGH);
-
-  // calculate sinc filter table for upsampling values stored in outputSampleBuffer
-  calculateUpsampleSincFilterTable();
   
   // load operation times from PBINT.txt file stored on SD card, parses and stores operation times into 
   // dynamically allocated array: opTimes *operationTimes
@@ -203,8 +198,11 @@ void setup() {
   startISRTimer(outputSampleDelayTime, OutputUpsampledSample);
   stopISRTimer();
 
+  // calculate sinc filter table for upsampling values stored in outputSampleBuffer
+  calculateUpsampleSincFilterTable();
+
   // perform setup playback to confirm that Playback() is working (just a precaution, can be commented out)
-  Serial.println("Performing setup playback");
+  Serial.println("Performing setup playback...");
   Playback();
 
   Serial.println("Setup complete");
@@ -223,6 +221,15 @@ void loop() {
   // may add option to add delay between playbacks in the future (will likely be set in PBINT.txt)
 }
 
+/* Set pin modes */
+void configurePins() {
+  pinMode(AUD_OUT, OUTPUT);
+  pinMode(HYPNOS_5VR, OUTPUT);
+  pinMode(HYPNOS_3VR, OUTPUT);
+  pinMode(SD_CS, OUTPUT);  
+  pinMode(AMP_SD, OUTPUT);
+}
+
 /* Put device to sleep in selected sleep mode */
 void goToSleep(SLEEPMODES mode) {
   Serial.println("Going to sleep");
@@ -238,30 +245,6 @@ void goToSleep(SLEEPMODES mode) {
   // go to sleep by disabling serial bus (__DSB) and calling wait for interrupt (__WFI)
   __DSB();
   __WFI();
-}
-
-/* Returns the current RTC time */
-uint32_t getRTCTime() {
-  uint32_t timeSeconds;
-
-  digitalWrite(HYPNOS_3VR, LOW);
-  Wire.begin();
-
-  timeSeconds = rtc.now().secondstime();
-
-  Wire.end();
-  digitalWrite(HYPNOS_3VR, HIGH);
-
-  return timeSeconds;
-}
-
-/* Set pin modes */
-void configurePins() {
-  pinMode(AUD_OUT, OUTPUT);
-  pinMode(HYPNOS_5VR, OUTPUT);
-  pinMode(HYPNOS_3VR, OUTPUT);
-  pinMode(SD_CS, OUTPUT);  
-  pinMode(AMP_SD, OUTPUT);
 }
 
 /* load operation times from "PBINT.txt" */
@@ -314,7 +297,7 @@ bool LoadOperationTimes() {
   return true;
 }
 
-/* allocate memory and store operation time */
+/* allocate memory and store operation times */
 void addOperationTime(int hour, int minute) {
   // increment size of operatimesTimes array
   numOperationTimes += 1;
@@ -334,13 +317,15 @@ bool setupOperation() {
   // perform playback continously if DEFAULT_PLAYBACK_INT is 0
   if (DEFAULT_PLAYBACK_INT == 0) return 1;
 
-  // get the current time from RTC
+  // get the current date and time from RTC
   digitalWrite(HYPNOS_3VR, LOW);
   Wire.begin();
 
   // Serial.printf("The current temperature is: %.1f\n", rtc.getTemperature());
+  // getting the current date and time from RTC
   DateTime nowDT = rtc.now();
-
+  // at this point, setup() should have cleared alarm since "OFF" mode is used, but in other sleep modes such as STANDBY
+  // where IP returns to instruction after __WFI, it would make sense to clear the alarm prior to setting one
   rtc.clearAlarm(1);
 
   Wire.end();
@@ -398,11 +383,12 @@ bool setupOperation() {
   else  Serial.printf("Next alarm will happen in %d hours and %d minutes", nextAlarmTime / 60, nextAlarmTime % 60);
   Serial.println();
 
-  // schedule RTC alarm totalMinutes into the future
+  // schedule RTC alarm nextAlarmTime minutes into the future
   digitalWrite(HYPNOS_3VR, LOW);
   Wire.begin();
 
-  if(!rtc.setAlarm1(
+  // ensure RTC alarm gets set, rtc.setAlarm1() returns True if alarm was set.
+  while (!rtc.setAlarm1(
       // TimeSpan() accepts seconds as argument. Therefore convert nextAlarmTime to seconds by multiplying by 60
       // subtracting the current seconds isn't necassary, but helps to ensure that alarm goes of exactly at the minute mark 
       nowDT + TimeSpan(nextAlarmTime * 60 - nowSecond),
@@ -430,14 +416,15 @@ bool LoadSound(char* fname) {
   strcpy(dir, "/PBAUD/");
   strcat(dir, fname);
 
+  // ensure SD can be initialized
   if (!BeginSD()) {
     //Serial.println("SD failed to initialize.");
     digitalWrite(HYPNOS_3VR, HIGH);
     return false;
   }
 
+  // ensure directory and playback sound exists
   //Serial.println("SD initialized successfully, checking directory...");
-
   if (!SD.exists(dir)) {
     //Serial.print("LoadSound failed: directory ");
     //Serial.print(dir);
@@ -448,8 +435,10 @@ bool LoadSound(char* fname) {
 
   //Serial.println("Directory found. Opening file...");
 
+  // open playback sound for reading
   data = SD.open(dir, FILE_READ);
 
+  // ensure file can be opened
   if (!data) {
     //Serial.print("LoadSound failed: file ");
     //Serial.print(dir);
@@ -460,18 +449,17 @@ bool LoadSound(char* fname) {
 
   //Serial.println("Opened file. Loading samples...");
 
+  // get size of playback file (in bytes)
   int fsize = data.size();
-  short buff;
 
+  // playback file is exported as 16-bit unsigned int, the total number of samples stored in the file is fsize / 2
   playbackSampleCount = fsize / 2;
-
+  
   for (int i = 0; i < playbackSampleCount; i++) {
-    if ((2 * i) < (fsize - 1)) {
-      data.read((byte*)(&buff), 2);
-      outputSampleBuffer[i] = buff;
-    } else {
-      break;
-    }
+    // stop reading at end of file, and ensure 2 bytes are available for reading
+    if ((2 * i) >= (fsize - 1)) break;
+    // read two bytes at a time and store to outputSampleBuffer[i]
+    data.read(&outputSampleBuffer[i], 2);
   }
 
   data.close();
@@ -489,21 +477,26 @@ void Playback() {
   //Serial.println("Enabling amplifier...");
 
   digitalWrite(HYPNOS_5VR, HIGH); // enable 5VR
-  analogWrite(AUD_OUT, 2048);     // set AUD_OUT to 2048 (3.3V / 2)
+  analogWrite(AUD_OUT, 2048);     // write 2048 to AUD_OUT (3.3V / 2)
   digitalWrite(AMP_SD, HIGH);     // enable amplifier
   delay(100);                     // short delay for analog low pass filter
 
   //Serial.println("Amplifier enabled. Beginning playback ISR...");
 
+  // begin outputting audio using timer interrupt
   startISRTimer(outputSampleDelayTime, OutputUpsampledSample);
 
-  while (outputSampleBufferPtr < playbackSampleCount) {}
+  // wait for full duration of playback sound to be played
+  while (outputSampleBufferIdx < playbackSampleCount)
+    ;
 
+  // store timer interrupt
   stopISRTimer();
 
-  //Serial.println("Finished playback ISR.\nShutting down amplifier...");
+  // restore output buffer index
+  outputSampleBufferIdx = 0;
 
-  outputSampleBufferPtr = 0;
+  //Serial.println("Finished playback ISR.\nShutting down amplifier...");
 
   digitalWrite(AMP_SD, LOW);    // disable amplifier
   analogWrite(AUD_OUT, 0);      // set AUD_OUT to 0V
@@ -514,54 +507,65 @@ void Playback() {
 
 /* Upsamples playback sound and writes upsampled sample to AUD_OUT */
 void OutputUpsampledSample() {
-  analogWrite(AUD_OUT, nextOutputSample);
-
-  if (outputSampleBufferPtr == playbackSampleCount) return;
+  if (outputSampleBufferIdx == playbackSampleCount) return;
   
   // store last location of upsampling input buffer
-  int upsampleInputPtrCpy = upsampleInputPtr;
+  int upsampleInputIdxCpy = upsampleInputIdx;
   
-  // store value of sample in upsampling input buffer, and pad with zeroes
-  int sample = upsampleInputC++ == 0 ? outputSampleBuffer[outputSampleBufferPtr++] : 0;
-  upsampleInput[upsampleInputPtr++] = sample;
+  // store value of sample to filter input buffer when upsample count == 0, otherwise pad with zeroes
+  upsampleFilterInput[upsampleInputIdx++] = upsampleInputCount++ > 0 ? 0 : outputSampleBuffer[outputSampleBufferIdx++];
   
-  if (upsampleInputC == AUD_OUT_UPSAMPLE_RATIO) upsampleInputC = 0;
-  if (upsampleInputPtr == sincTableSizeUp) upsampleInputPtr = 0;
+  if (upsampleInputCount == SINC_FILTER_UPSAMPLE_RATIO) upsampleInputCount = 0;
+  if (upsampleInputIdx == sincTableSizeUp) upsampleInputIdx = 0;
 
   // calculate upsampled value
-  float upsampledSample = 0.0;
+  float filteredValue = 0.0;
+  // convolute filter input with sinc function
   for (int i = 0; i < sincTableSizeUp; i++) {
-    upsampledSample += upsampleInput[upsampleInputPtrCpy++] * sincFilterTableUpsample[i];
-    if (upsampleInputPtrCpy == sincTableSizeUp) upsampleInputPtrCpy = 0;
+    filteredValue += upsampleFilterInput[upsampleInputIdxCpy++] * sincFilterTableUpsample[i];
+    if (upsampleInputIdxCpy == sincTableSizeUp) upsampleInputIdxCpy = 0;
   }
 
-  nextOutputSample = max(0, min(4095, round(upsampledSample)));
+  // write filtered value to AUD_OUT
+  analogWrite(AUD_OUT, max(0, min(4095, round(filteredValue))));
 }
 
 
 /* Calculates sinc filter table for upsampling a signal by @ratio
  @nz is the number of zeroes to use for the table */
 void calculateUpsampleSincFilterTable() {
-  int ratio = AUD_OUT_UPSAMPLE_RATIO;
-  int nz = AUD_OUT_UPSAMPLE_FILTER_SIZE;
-  // Build sinc function table for upsampling by @upsample_ratio
+  int ratio = SINC_FILTER_UPSAMPLE_RATIO;
+  int nz = SINC_FILTER_NUM_ZEROES;
+  // Build sinc function for upsampling by ratio with 
   int n = sincTableSizeUp;
 
+  // stores time values corresponding to sinc function
   float ns[n];
   float ns_step = float(nz * 2) / (n - 1);
 
+  // stores time values corresponding to cosine function for windowing the sinc function
   float t[n];
   float t_step = 1.0 / (n - 1);
 
   for (int i = 0; i < n; i++) {
+    // calculate time values for sinc function, [-nz to nz] spaced apart by ns_step
     ns[i] = float(-1.0 * nz) + ns_step * i;
+    // calculate time values for cosine function, [0.0 to 1.0] spaced apart by t_step
     t[i] = t_step * i;
   }
 
+  // ensure to not divide by 0
+  ns[round((n - 1) / 2.0)] = 1.0;
+
+  // calculate sinc function and store in table
   for (int i = 0; i < n; i++) {
     sincFilterTableUpsample[i] = sin(PI * ns[i]) / (PI * ns[i]); 
   }
+  
+  // sinc function is 'undefined' at 0 (sinc(0)/0), therefore set to 1.0
   sincFilterTableUpsample[int(round((n - 1) / 2.0))] = 1.0;
+
+  // window sinc function table with cosine wave 
   for (int i = 0; i < n; i++) {
     sincFilterTableUpsample[i] = sincFilterTableUpsample[i] * 0.5 * (1.0 - cos(2.0 * PI * t[i]));
   }
