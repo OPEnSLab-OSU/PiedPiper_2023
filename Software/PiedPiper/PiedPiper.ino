@@ -154,7 +154,7 @@ void setup() {
 
   Wire.end();
 
-  p.calculateDownsamplSincFilterTable();
+  p.calculateDownsampleSincFilterTable();
   p.calculateUpsampleSincFilterTable();
 
   // Enable audio sampling

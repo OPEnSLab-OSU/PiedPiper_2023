@@ -28,7 +28,7 @@ const char playback_filename[] = "BMSB.PAD";
 #define AUD_OUT_TIME 8  // maximum length of playback file in seconds
 
 #define SINC_FILTER_UPSAMPLE_RATIO 8 // sinc filter upsample ratio, ideally should be a power of 2
-#define SINC_FILTER_NUM_ZEROES 7    // sinc filter number of zero crossings, more crossings will produce a cleaner result but will also use more processor time 
+#define SINC_FILTER_ZERO_X 7    // sinc filter number of zero crossings, more crossings will produce a cleaner result but will also use more processor time 
 
 #define SD_OPEN_ATTEMPT_COUNT 10  // number of times to retry SD.begin()
 #define SD_OPEN_RETRY_DELAY_MS 100  // delay between SD.begin() attempts
@@ -53,7 +53,7 @@ enum SLEEPMODES
   STANDBY = 0x4,    // STANDBY sleep mode can exited with a interrupt (this sleep mode is good, but draws ~20mA by default)
   HIBERNATE = 0x5,  // HIBERNATE sleep mode can only be exited with a device reset
   BACKUP = 0x6,     // BACKUP sleep mode can only be exited with a device reset
-  OFF = 0x7         // OFF sleep mode can only be exited with a device reset (best sleep mode for power consumption)
+  OFF = 0x7         // OFF sleep mode can only be exited with a device reset (best sleep mode to use for least power consumption)
 };
 
 // For this version, "OFF" sleep mode is used which results in the least power consumption (draws less than 1mA)
@@ -67,6 +67,7 @@ const int outputSampleDelayTime = 1000000 / (AUD_OUT_SAMPLE_FREQ * SINC_FILTER_U
 // output sample buffer stores the values corresponding to the playback file that is loaded from the SD card
 short outputSampleBuffer[AUD_OUT_SAMPLE_FREQ * AUD_OUT_TIME];
 volatile int outputSampleBufferIdx = 0; // stores the position of the current sample for playback
+volatile short nextOutputSample = 2048;
 
 // stores the total number of samples loaded from the playback file. 
 // Originally, this is set to the maximum number of samples that can be stored (SAMPLE_RATE * AUD_OUT_TIME),
@@ -75,7 +76,7 @@ volatile int outputSampleBufferIdx = 0; // stores the position of the current sa
 int playbackSampleCount = AUD_OUT_SAMPLE_FREQ * AUD_OUT_TIME;
 
 // stores values of sinc function (sin(x) / x) for upsampling the samples stored in outputSampleBuffer during Playback()
-const int sincTableSizeUp = (2 * SINC_FILTER_NUM_ZEROES + 1) * SINC_FILTER_UPSAMPLE_RATIO - SINC_FILTER_UPSAMPLE_RATIO + 1;
+const int sincTableSizeUp = (2 * SINC_FILTER_ZERO_X + 1) * SINC_FILTER_UPSAMPLE_RATIO - SINC_FILTER_UPSAMPLE_RATIO + 1;
 float sincFilterTableUpsample[sincTableSizeUp];
 
 // circular input buffer for upsampling
@@ -133,8 +134,8 @@ void setup() {
 
   // turn on 3VR rail
   digitalWrite(HYPNOS_3VR, LOW);
-  Serial.println("Initializing SD...");
 
+  Serial.println("Initializing SD...");
   // Verify that SD can be initialized; stop the program if it can't.
   if (!BeginSD()) {
     Serial.println("SD failed to initialize.");
@@ -146,7 +147,6 @@ void setup() {
   Wire.begin();
 
   Serial.println("Initializing RTC...");
-
   // Initialize RTC
   if (!rtc.begin()) {
     Serial.println("RTC failed to begin.");
@@ -179,8 +179,8 @@ void setup() {
   Wire.end();
   digitalWrite(HYPNOS_3VR, HIGH);
   
-  // load operation times from PBINT.txt file stored on SD card, parses and stores operation times into 
-  // dynamically allocated array: opTimes *operationTimes
+  // loads, parses, and stores operation times from "PBINT.txt" file
+  // on SD card to dynamically allocated array: opTimes *operationTimes
   // returns False upon failure and initiates fail flash
   if (!LoadOperationTimes()) {
     Serial.println("Reading operation times from SD failed!");
@@ -297,7 +297,7 @@ bool LoadOperationTimes() {
   return true;
 }
 
-/* allocate memory and store operation times */
+/* allocate memory and store operation time */
 void addOperationTime(int hour, int minute) {
   // increment size of operatimesTimes array
   numOperationTimes += 1;
@@ -505,10 +505,15 @@ void Playback() {
   //Serial.println("Amplifer shut down.");
 }
 
-/* Upsamples playback sound and writes upsampled sample to AUD_OUT */
+/* writes a sample to AUD_OUT and replaces sample with next upsampled value, this function is called by timer interrupt */
 void OutputUpsampledSample() {
+  // write sample to AUD_OUT
+  analogWrite(AUD_OUT, nextOutputSample);
+
+  // return if outside of outputSampleBuffer bounds
   if (outputSampleBufferIdx == playbackSampleCount) return;
-  
+  // Otherwise, calculate next upsampled value for AUD_OUT
+
   // store last location of upsampling input buffer
   int upsampleInputIdxCpy = upsampleInputIdx;
   
@@ -526,8 +531,8 @@ void OutputUpsampledSample() {
     if (upsampleInputIdxCpy == sincTableSizeUp) upsampleInputIdxCpy = 0;
   }
 
-  // write filtered value to AUD_OUT
-  analogWrite(AUD_OUT, max(0, min(4095, round(filteredValue))));
+  // copy filtered value to next output sample
+  nextOutputSample = max(0, min(4095, round(filteredValue)));
 }
 
 
@@ -535,7 +540,7 @@ void OutputUpsampledSample() {
  @nz is the number of zeroes to use for the table */
 void calculateUpsampleSincFilterTable() {
   int ratio = SINC_FILTER_UPSAMPLE_RATIO;
-  int nz = SINC_FILTER_NUM_ZEROES;
+  int nz = SINC_FILTER_ZERO_X;
   // Build sinc function for upsampling by ratio with 
   int n = sincTableSizeUp;
 

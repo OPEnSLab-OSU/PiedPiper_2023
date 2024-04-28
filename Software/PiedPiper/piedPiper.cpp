@@ -33,25 +33,25 @@ void piedPiper::StartAudioInput()
 // If it is not full, it records a sample and moves the pointer over.
 void piedPiper::RecordSample(void)
 {
-  if (inputSampleBufferPtr < FFT_WIN_SIZE)
+  if (inputSampleBufferIdx < FFT_WIN_SIZE)
   {
     // store last location in input buffer and read sample into rolling downsampling input buffer
-    int downsampleInputPtrCpy = downsampleInputPtr;
-    downsampleInput[downsampleInputPtr++] = analogRead(AUD_IN);
+    int downsampleInputIdxCpy = downsampleInputIdx;
+    downsampleFilterInput[downsampleInputIdx++] = analogRead(AUD_IN);
 
-    if (downsampleInputPtr == sincTableSizeDown) { downsampleInputPtr = 0; }
-    downsampleInputC++;
+    if (downsampleInputIdx == sincTableSizeDown) downsampleInputIdx = 0;
+    downsampleInputCount++;
     // performs downsampling every AUD_IN_DOWNSAMPLE_RATIO samples
-    if (downsampleInputC == AUD_IN_DOWNSAMPLE_RATIO) {
-      downsampleInputC = 0;
+    if (downsampleInputCount == AUD_IN_DOWNSAMPLE_RATIO) {
+      downsampleInputCount = 0;
       // calculate downsampled value using sinc filter table
       float downsampleSample = 0.0;
       for (int i = 0; i < sincTableSizeDown; i++) {
-        downsampleSample += downsampleInput[downsampleInputPtrCpy++] * sincFilterTableDownsample[i];
-        if (downsampleInputPtrCpy == sincTableSizeDown) { downsampleInputPtrCpy = 0; }
+        downsampleSample += downsampleFilterInput[downsampleInputIdxCpy++] * sincFilterTableDownsample[i];
+        if (downsampleInputIdxCpy == sincTableSizeDown) downsampleInputIdxCpy = 0;
       }
       // store downsampled value in input sample buffer
-      inputSampleBuffer[inputSampleBufferPtr++] = downsampleSample;
+      inputSampleBuffer[inputSampleBufferIdx++] = round(downsampleSample);
     }
   }
 }
@@ -64,59 +64,58 @@ void piedPiper::OutputSample(void) {
   analogWrite(AUD_OUT, nextOutputSample);
 
   interpCount++;
-  if (outputSampleBufferPtr < (playbackSampleCount - 2))
+  if (outputSampleBufferIdx < (playbackSampleCount - 2))
   {
     if (!(interpCount < AUD_OUT_INTERP_RATIO))
     {
       interpCount = 0;
-      outputSampleBufferPtr++;
+      outputSampleBufferIdx++;
 
-      interpCoeffA = -0.5 * outputSampleBuffer[outputSampleBufferPtr - 1] + 1.5 * outputSampleBuffer[outputSampleBufferPtr] - 1.5 * outputSampleBuffer[outputSampleBufferPtr + 1] + 0.5 * outputSampleBuffer[outputSampleBufferPtr + 2];
-      interpCoeffB = outputSampleBuffer[outputSampleBufferPtr - 1] - 2.5 * outputSampleBuffer[outputSampleBufferPtr] + 2 * outputSampleBuffer[outputSampleBufferPtr + 1] - 0.5 * outputSampleBuffer[outputSampleBufferPtr + 2];
-      interpCoeffC = -0.5 * outputSampleBuffer[outputSampleBufferPtr - 1] + 0.5 * outputSampleBuffer[outputSampleBufferPtr + 1];
-      interpCoeffD = outputSampleBuffer[outputSampleBufferPtr];
+      interpCoeffA = -0.5 * outputSampleBuffer[outputSampleBufferIdx - 1] + 1.5 * outputSampleBuffer[outputSampleBufferIdx] - 1.5 * outputSampleBuffer[outputSampleBufferIdx + 1] + 0.5 * outputSampleBuffer[outputSampleBufferIdx + 2];
+      interpCoeffB = outputSampleBuffer[outputSampleBufferIdx - 1] - 2.5 * outputSampleBuffer[outputSampleBufferIdx] + 2 * outputSampleBuffer[outputSampleBufferIdx + 1] - 0.5 * outputSampleBuffer[outputSampleBufferIdx + 2];
+      interpCoeffC = -0.5 * outputSampleBuffer[outputSampleBufferIdx - 1] + 0.5 * outputSampleBuffer[outputSampleBufferIdx + 1];
+      interpCoeffD = outputSampleBuffer[outputSampleBufferIdx];
     }
 
     float t = (interpCount * 1.0) / AUD_OUT_INTERP_RATIO;
 
     nextOutputSample = max(0, min(4095, round(interpCoeffA * t * t * t + interpCoeffB * t * t + interpCoeffC * t + interpCoeffD)));
-    pbs = true;
   }
 }
 
 void piedPiper::OutputUpsampledSample(void) {
+  // write sample to AUD_OUT
   analogWrite(AUD_OUT, nextOutputSample);
 
-  if (outputSampleBufferPtr == playbackSampleCount) { return; }
-  
+  // return if outside of outputSampleBuffer bounds
+  if (outputSampleBufferIdx == playbackSampleCount) return;
+  // Otherwise, calculate next upsampled value for AUD_OUT
+
   // store last location of upsampling input buffer
-  int upsampleInputPtrCpy = upsampleInputPtr;
+  int upsampleInputIdxCpy = upsampleInputIdx;
   
-  // store value of sample in upsampling input buffer, and pad with zeroes
-  if (upsampleInputC++ == 0) {
-    upsampleInput[upsampleInputPtr++] = outputSampleBuffer[outputSampleBufferPtr++];
-  } else {
-    upsampleInput[upsampleInputPtr++] = 0;
-  }
-  if (upsampleInputC == AUD_OUT_UPSAMPLE_RATIO) { upsampleInputC = 0; }
-  if (upsampleInputPtr == sincTableSizeUp) { upsampleInputPtr = 0; }
+  // store value of sample to filter input buffer when upsample count == 0, otherwise pad with zeroes
+  upsampleFilterInput[upsampleInputIdx++] = upsampleInputCount++ > 0 ? 0 : outputSampleBuffer[outputSampleBufferIdx++];
+  
+  if (upsampleInputCount == AUD_OUT_UPSAMPLE_RATIO) upsampleInputCount = 0;
+  if (upsampleInputIdx == sincTableSizeUp) upsampleInputIdx = 0;
 
   // calculate upsampled value
-  float upsampledSample = 0.0;
+  float filteredValue = 0.0;
+  // convolute filter input with sinc function
   for (int i = 0; i < sincTableSizeUp; i++) {
-    upsampledSample += upsampleInput[upsampleInputPtrCpy++] * sincFilterTableUpsample[i];
-    if (upsampleInputPtrCpy == sincTableSizeUp) { upsampleInputPtrCpy = 0; }
+    filteredValue += upsampleFilterInput[upsampleInputIdxCpy++] * sincFilterTableUpsample[i];
+    if (upsampleInputIdxCpy == sincTableSizeUp) upsampleInputIdxCpy = 0;
   }
 
-  nextOutputSample = max(0, min(4095, round(upsampledSample)));
-
-  pbs = true;
+  // copy filtered value to next output sample
+  nextOutputSample = max(0, min(4095, round(filteredValue)));
 }
 
 // Determines if the sample buffer is full, and is ready to have frequencies computed.
 bool piedPiper::InputSampleBufferFull()
 {
-  return !(inputSampleBufferPtr < FFT_WIN_SIZE);
+  return !(inputSampleBufferIdx < FFT_WIN_SIZE);
 }
 
 // Loads sound data from the SD card into the audio output buffer. Once loaded, the data will
@@ -205,7 +204,7 @@ void piedPiper::ProcessData()
     vImag[i] = 0.0;
   }
 
-  inputSampleBufferPtr = 0;
+  inputSampleBufferIdx = 0;
 
   //Calculate FFT of new data and put into time smoothing buffer
   FFT.DCRemoval(vReal, FFT_WIN_SIZE); // Remove DC component of signal
@@ -278,27 +277,38 @@ void piedPiper::SmoothFreqs(int winSize)
 
 // calculates sinc filter table for downsampling a signal by @ratio
 // @nz is the number of zeroes to use for the table
-void piedPiper::calculateDownsamplSincFilterTable() {
+void piedPiper::calculateDownsampleSincFilterTable() {
   int ratio = AUD_IN_DOWNSAMPLE_RATIO;
-  int nz = AUD_IN_DOWNSAMPLE_FILTER_SIZE;
+  int nz = AUD_IN_DOWNSAMPLE_FILTER_ZERO_X;
   // Build sinc function table for downsampling by @AUD_IN_DOWNSAMPLE_RATIO
   int n = sincTableSizeDown;
 
+  // stores time values corresponding to sinc function
   float ns[n];
   float ns_step = float(nz * ratio * 2) / (n - 1);
 
+  // stores time values corresponding to 1 period of cosine function for windowing the sinc function
   float t[n];
   float t_step = 1.0 / (n - 1);
 
   for (int i = 0; i < n; i++) {
+    // calculate time values for sinc function, [-nz * ratio to nz * ratio] spaced apart by ns_step
     ns[i] = float(-1.0 * nz * ratio) + ns_step * i;
+    // calculate time values for cosine function, [0.0 to 1.0] spaced apart by t_step
     t[i] = t_step * i;
   }
+  // ensure to not divide by 0
+  ns[round((n - 1) / 2.0)] = 1.0;
 
+  // calculate sinc function and store in table
   for (int i = 0; i < n; i++) {
     sincFilterTableDownsample[i] = (1.0 / ratio) * sin(PI * ns[i] / ratio) / (PI * ns[i] / ratio);
   }
+
+  // sinc function is 'undefined' at 0 (sinc(0)/0), therefore set to 1.0 / ratio
   sincFilterTableDownsample[int(round((n - 1) / 2.0))] = 1.0 / ratio;
+
+  // window sinc function table with cosine wave 
   for (int i = 0; i < n; i++) {
     sincFilterTableDownsample[i] = sincFilterTableDownsample[i] * 0.5 * (1.0 - cos(2.0 * PI * t[i]));
   }
@@ -308,25 +318,37 @@ void piedPiper::calculateDownsamplSincFilterTable() {
 // @nz is the number of zeroes to use for the table
 void piedPiper::calculateUpsampleSincFilterTable() {
   int ratio = AUD_OUT_UPSAMPLE_RATIO;
-  int nz = AUD_OUT_UPSAMPLE_FILTER_SIZE;
+  int nz = AUD_OUT_UPSAMPLE_FILTER_ZERO_X;
   // Build sinc function table for upsampling by @upsample_ratio
   int n = sincTableSizeUp;
 
+  // stores time values corresponding to sinc function
   float ns[n];
   float ns_step = float(nz * 2) / (n - 1);
 
+  // stores time values corresponding to 1 period of cosine function for windowing the sinc function
   float t[n];
   float t_step = 1.0 / (n - 1);
 
   for (int i = 0; i < n; i++) {
+    // calculate time values for sinc function, [-nz to nz] spaced apart by ns_step
     ns[i] = float(-1.0 * nz) + ns_step * i;
+    // calculate time values for cosine function, [0.0 to 1.0] spaced apart by t_step
     t[i] = t_step * i;
   }
 
+  // ensure to not divide by 0
+  ns[round((n - 1) / 2.0)] = 1.0;
+
+  // calculate sinc function and store in table
   for (int i = 0; i < n; i++) {
     sincFilterTableUpsample[i] = sin(PI * ns[i]) / (PI * ns[i]); 
   }
+  
+  // sinc function is 'undefined' at 0 (sinc(0)/0), therefore set to 1.0
   sincFilterTableUpsample[int(round((n - 1) / 2.0))] = 1.0;
+
+  // window sinc function table with cosine wave 
   for (int i = 0; i < n; i++) {
     sincFilterTableUpsample[i] = sincFilterTableUpsample[i] * 0.5 * (1.0 - cos(2.0 * PI * t[i]));
   }
@@ -799,13 +821,13 @@ void piedPiper::Playback() {
 
   StartAudioOutput();
 
-  while (outputSampleBufferPtr < playbackSampleCount) {}
+  while (outputSampleBufferIdx < playbackSampleCount) {}
 
   StopAudio();
 
   //Serial.println("Finished playback ISR.\nShutting down amplifier...");
 
-  outputSampleBufferPtr = 0;
+  outputSampleBufferIdx = 0;
   outputSampleInterpCount = 0;
 
   digitalWrite(AMP_SD, LOW);

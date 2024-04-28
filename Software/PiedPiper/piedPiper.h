@@ -14,9 +14,9 @@
 #define AUD_OUT_SAMPLE_FREQ 4096
 #define AUD_OUT_INTERP_RATIO 8
 #define AUD_IN_DOWNSAMPLE_RATIO 2 // sinc filter downsample ratio, ideally should be a power of 2
-#define AUD_IN_DOWNSAMPLE_FILTER_SIZE 8 // downsample sinc filter number of zero crossing, more crossings will produce a cleaner result but will also use more processor time 
+#define AUD_IN_DOWNSAMPLE_FILTER_ZERO_X 8 // downsample sinc filter number of zero crossing, more crossings will produce a cleaner result but will also use more processor time 
 #define AUD_OUT_UPSAMPLE_RATIO 8 // sinc filter upsample ratio, ideally should be a power of 2
-#define AUD_OUT_UPSAMPLE_FILTER_SIZE 10 // // upsample sinc filter number of zero crossings, more crossings will produce a cleaner result but will also use more processor time 
+#define AUD_OUT_UPSAMPLE_FILTER_ZERO_X 7 // // upsample sinc filter number of zero crossings, more crossings will produce a cleaner result but will also use more processor time 
 #define AUD_OUT_TIME 8
 #define REC_TIME 8 // Number of seconds of audio to record when frequency test is positive
 #define WIN_SIZE 512 // Size of window used when sampling incoming audio; must be a power of 2
@@ -24,10 +24,10 @@
 
 
 // Detection algorithm settings:
-#define TGT_FREQ 150 // Primary (first harmonic) frequency of mating call to search for
+#define TGT_FREQ 70 // Primary (first harmonic) frequency of mating call to search for
 #define FREQ_MARGIN 8  // Margin for error of target frequency
 #define HARMONICS 1 // Number of harmonics to search for; looking for more than 3 is not recommended, because this can result in a high false-positive rate.
-#define SIG_THRESH 500 // Threshhold for magnitude of target frequency peak to be considered a positive detection
+#define SIG_THRESH 400 // Threshhold for magnitude of target frequency peak to be considered a positive detection
 #define EXP_SIGNAL_LEN 5 // Expected length of the mating call
 #define EXP_DET_EFF 1.0 // Minimum expected efficiency by which the detection algorithm will detect target frequency peaks
 #define TIME_AVG_WIN_COUNT 8 // Number of frequency windows used to average frequencies across time
@@ -47,7 +47,7 @@
 #define AMP_SD 9
 
 #define LOG_INT 3600000 // Miliseconds between status logs [3600000]
-#define PLAYBACK_INT 2000 // Milliseconds between playback [900000]
+#define PLAYBACK_INT 30000 // Milliseconds between playback [900000]
 
 #define CTRL_IMG_INT 3600000
 #define IMG_TIME 300000
@@ -63,18 +63,16 @@
 
 #define USE_DETECTION 1
 
-volatile static bool pbs = false;
-
 static const int FFT_WIN_SIZE = WIN_SIZE / AUD_IN_DOWNSAMPLE_RATIO; // int(WIN_SIZE) >> int(log(int(AUD_IN_DOWNSAMPLE_RATIO)) / log(2)); // Size of window used when performing fourier transform of incoming audio; must be a power of 2
 static const int FFT_SAMPLE_FREQ = AUD_IN_SAMPLE_FREQ / AUD_IN_DOWNSAMPLE_RATIO; // int(AUD_IN_SAMPLE_FREQ) >> int(log(int(AUD_IN_DOWNSAMPLE_RATIO)) / log(2));
 
     // Volatile audio input buffer (LINEAR)
 volatile static short inputSampleBuffer[FFT_WIN_SIZE];
-volatile static int inputSampleBufferPtr = 0;
+volatile static int inputSampleBufferIdx = 0;
 static const int inputSampleDelayTime = 1000000 / AUD_IN_SAMPLE_FREQ;
 
-volatile static short outputSampleBuffer[AUD_OUT_SAMPLE_FREQ * AUD_OUT_TIME];
-volatile static int outputSampleBufferPtr = 0;
+static short outputSampleBuffer[AUD_OUT_SAMPLE_FREQ * AUD_OUT_TIME];
+volatile static int outputSampleBufferIdx = 0;
 volatile static int outputSampleInterpCount = 0;
 //static const int outputSampleDelayTime = 1000000 / (AUD_OUT_SAMPLE_FREQ * AUD_OUT_INTERP_RATIO);
 static const int outputSampleDelayTime = 1000000 / (AUD_OUT_SAMPLE_FREQ * AUD_OUT_UPSAMPLE_RATIO);
@@ -89,22 +87,22 @@ static volatile float interpCoeffB = 0;
 static volatile float interpCoeffC = 0;
 static volatile float interpCoeffD = 0;
 
-static const int sincTableSizeDown = (2 * AUD_IN_DOWNSAMPLE_FILTER_SIZE + 1) * AUD_IN_DOWNSAMPLE_RATIO - AUD_IN_DOWNSAMPLE_RATIO + 1;
-static const int sincTableSizeUp = (2 * AUD_OUT_UPSAMPLE_FILTER_SIZE + 1) * AUD_OUT_UPSAMPLE_RATIO - AUD_OUT_UPSAMPLE_RATIO + 1;
+static const int sincTableSizeDown = (2 * AUD_IN_DOWNSAMPLE_FILTER_ZERO_X + 1) * AUD_IN_DOWNSAMPLE_RATIO - AUD_IN_DOWNSAMPLE_RATIO + 1;
+static const int sincTableSizeUp = (2 * AUD_OUT_UPSAMPLE_FILTER_ZERO_X + 1) * AUD_OUT_UPSAMPLE_RATIO - AUD_OUT_UPSAMPLE_RATIO + 1;
 
 // tables holding values corresponding to sinc filter for band limited upsampling/downsampling
 static float sincFilterTableDownsample[sincTableSizeDown];
 static float sincFilterTableUpsample[sincTableSizeUp];
 
     // circular input buffer for downsampling
-static volatile short downsampleInput[sincTableSizeDown];
-static volatile int downsampleInputPtr = 0;
-static volatile int downsampleInputC = 0;
+static volatile short downsampleFilterInput[sincTableSizeDown];
+static volatile int downsampleInputIdx = 0;
+static volatile int downsampleInputCount = 0;
 
     // circular input buffer for upsampling
-static volatile short upsampleInput[sincTableSizeUp];
-static volatile int upsampleInputPtr = 0;
-static volatile int upsampleInputC = 0;
+static volatile short upsampleFilterInput[sincTableSizeUp];
+static volatile int upsampleInputIdx = 0;
+static volatile int upsampleInputCount = 0;
 
 class piedPiper {
   private:
@@ -164,7 +162,7 @@ class piedPiper {
     static void OutputUpsampledSample();
     bool InputSampleBufferFull();
     void ProcessData();
-    void calculateDownsamplSincFilterTable();
+    void calculateDownsampleSincFilterTable();
     void calculateUpsampleSincFilterTable();
     bool InsectDetection();
     void Playback();
