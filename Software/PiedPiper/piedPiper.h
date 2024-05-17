@@ -22,6 +22,8 @@
 #define WIN_SIZE 512 // Size of window used when sampling incoming audio; must be a power of 2
 // The product of sampleFreq and recordTime must be an integer multiple of winSize.
 
+#define ANALOG_RES 12 // Resolution (in bits) of audio input and output
+
 
 // Detection algorithm settings:
 #define TGT_FREQ 70 // Primary (first harmonic) frequency of mating call to search for
@@ -70,6 +72,7 @@ static const int FFT_SAMPLE_FREQ = AUD_IN_SAMPLE_FREQ / AUD_IN_DOWNSAMPLE_RATIO;
 volatile static short inputSampleBuffer[FFT_WIN_SIZE];
 volatile static int inputSampleBufferIdx = 0;
 static const int inputSampleDelayTime = 1000000 / AUD_IN_SAMPLE_FREQ;
+const int analogRange = pow(2, ANALOG_RES);
 
 static short outputSampleBuffer[AUD_OUT_SAMPLE_FREQ * AUD_OUT_TIME];
 volatile static int outputSampleBufferIdx = 0;
@@ -79,7 +82,7 @@ static const int outputSampleDelayTime = 1000000 / (AUD_OUT_SAMPLE_FREQ * AUD_OU
 volatile static int interpCount = 0;
 static volatile int playbackSampleCount = AUD_OUT_SAMPLE_FREQ * AUD_OUT_TIME;
 
-static ArduCAM CameraModule(OV2640, CAM_CS );
+static ArduCAM CameraModule(OV2640, CAM_CS);
 
 static volatile int nextOutputSample = 0;
 static volatile float interpCoeffA = 0;
@@ -126,6 +129,11 @@ class piedPiper {
     short freqs[freqWinCount][FFT_WIN_SIZE / 2];
     int freqsPtr = 0; // Position of "current" time in buffer (specifically, the time that will be written to next; the data at this location is the oldest)
 
+    // template data
+    short templateData[freqWinCount][FFT_WIN_SIZE / 2];
+    // square root sum squared of template data (updates upon call to LoadTemplate())
+    float templateSqrtSumSq = 0;
+
     // Scratchpad arrays used for calculating FFT's and frequency smoothing
     float vReal[FFT_WIN_SIZE];
     float vImag[FFT_WIN_SIZE];
@@ -140,49 +148,52 @@ class piedPiper {
     
     int IterateCircularBufferPtr(int currentVal, int arrSize);
 
-    void StopAudio();
-    void StartAudioOutput();
-    void StartAudioInput();
+    void StopAudio(void);
+    void StartAudioOutput(void);
+    void StartAudioInput(void);
     
     void SmoothFreqs(int winSize);
     bool CheckFreqDomain(int t);
     
-    void ResetSPI();
-    bool BeginSD();
+    void ResetSPI(void);
+    bool BeginSD(void);
+    bool OpenFile(char *fname);
 
-    void(*ISRStopFn)();
+    void(*ISRStopFn)(void);
     void(*ISRStartFn)(const unsigned long interval_us, void(*fnPtr)());
     uint8_t read_fifo_burst(ArduCAM CameraModule);
     
   public:
     piedPiper(void(*audStart)(const unsigned long interval_us, void(*fnPtr)()), void(*audStop)()) ;
 
-    static void RecordSample();
-    static void OutputSample();
-    static void OutputUpsampledSample();
-    bool InputSampleBufferFull();
-    void ProcessData();
-    void calculateDownsampleSincFilterTable();
-    void calculateUpsampleSincFilterTable();
-    bool InsectDetection();
-    void Playback();
-    void LoadSound();
-    void LogAlive();
+    static void RecordSample(void);
+    static void OutputSample(void);
+    static void OutputUpsampledSample(void);
+    bool InputSampleBufferFull(void);
+    void ProcessData(void);
+    bool InsectDetection(void);
+    float CrossCorrelation(void);
+    void calculateDownsampleSincFilterTable(void);
+    void calculateUpsampleSincFilterTable(void);
+    void Playback(void);
+    //void LoadSound(void);
+    void LogAlive(void);
     bool TakePhoto(int n);
-    void SaveDetection();
-    bool InitializeAudioStream();
-    bool LoadSound(char* fname);
-    void ResetOperationIntervals();
+    void SaveDetection(void);
+    bool InitializeAudioStream(void);
+    bool LoadSound(char *fname);
+    bool LoadTemplate(char *fname);
+    void ResetOperationIntervals(void);
 
     void SetPhotoNum(int n);
     void SetDetectionNum(int n);
 
     RTC_DS3231 rtc;
     
-    unsigned long GetLastPlaybackTime();
-    unsigned long GetLastPhotoTime();
-    unsigned long GetLastDetectionTime();
-    unsigned long GetLastLogTime();
-    int GetDetectionNum();
-    int GetPhotoNum();
+    unsigned long GetLastPlaybackTime(void);
+    unsigned long GetLastPhotoTime(void);
+    unsigned long GetLastDetectionTime(void);
+    unsigned long GetLastLogTime(void);
+    int GetDetectionNum(void);
+    int GetPhotoNum(void);
 };

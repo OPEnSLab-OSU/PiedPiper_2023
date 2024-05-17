@@ -35,7 +35,7 @@ void piedPiper::RecordSample(void)
 {
   if (inputSampleBufferIdx < FFT_WIN_SIZE)
   {
-    // store last location in input buffer and read sample into rolling downsampling input buffer
+    // store last location in input buffer and read sample into circular downsampling input buffer
     int downsampleInputIdxCpy = downsampleInputIdx;
     downsampleFilterInput[downsampleInputIdx++] = analogRead(AUD_IN);
 
@@ -152,8 +152,6 @@ bool piedPiper::LoadSound(char* fname) {
 
   data = SD.open(dir, FILE_READ);
 
-
-
   if (!data) {
     //Serial.print("LoadSound failed: file ");
     //Serial.print(dir);
@@ -212,6 +210,7 @@ void piedPiper::ProcessData()
   FFT.Compute(vReal, vImag, FFT_WIN_SIZE, FFT_FORWARD); // Compute FFT
   FFT.ComplexToMagnitude(vReal, vImag, FFT_WIN_SIZE); // Compute frequency magnitudes
 
+  // store raw frequency magnitudes to rawFreqs
   for (int i = 0; i < FFT_WIN_SIZE / 2; i++)
   {
     rawFreqs[rawFreqsPtr][i] = vReal[i];
@@ -220,6 +219,7 @@ void piedPiper::ProcessData()
 
   rawFreqsPtr = IterateCircularBufferPtr(rawFreqsPtr, TIME_AVG_WIN_COUNT);
 
+  // use vReal as scratch space to store time averaged data of rawFreqs
   for (int t = 0; t < TIME_AVG_WIN_COUNT; t++)
   {
     for (int f = 0; f < FFT_WIN_SIZE / 2; f++) {
@@ -229,6 +229,7 @@ void piedPiper::ProcessData()
 
   SmoothFreqs(4);
 
+  // store smoothed time-averaged data into freqs
   for (int f = 0; f < FFT_WIN_SIZE / 2; f++)
   {
     freqs[freqsPtr][f] = round(vReal[f]);
@@ -236,8 +237,12 @@ void piedPiper::ProcessData()
 
   SmoothFreqs(16);
 
+  // subtract further smoothed data from data in freqs to help remove background noise
   for (int f = 0; f < FFT_WIN_SIZE / 2; f++)
   {
+    // instead of subtracting, would it make sense to check if (freqs[freqsPtr][f] < vReal[f] * (some_threshold))
+    // and zero freqs[freqsPtr][f] if true.
+    // Is it possible that freqs[freqPtr][f] can be negative?
     freqs[freqsPtr][f] = freqs[freqsPtr][f] - round(vReal[f]);
   }
 
@@ -272,6 +277,97 @@ void piedPiper::SmoothFreqs(int winSize)
 
     vReal[i] /= avgCount;
   }
+}
+
+// load template and store into array... init fail flash if template doesn't exist or template is invalid (size does not match)
+// When template data is collected, it must be ran through the exact same processing as frequency data for best results.
+// Template data collection must be done through the device, perhaps a seperate ino file will be good for this,
+// but in the future the Pied Piper library will allow configuring device through settings file on SD card.
+
+// Load template from SD card and store into template array, performs initial computation.
+// Once loaded, the data will remain in-place until LoadTemplate is called again
+bool piedPiper::LoadTemplate(char *fname) {
+  // load template from SD card and store into template array, check for errors.
+  StopAudio();
+  ResetSPI();
+  digitalWrite(HYPNOS_3VR, LOW);
+
+  char dir[28];
+
+  strcpy(dir, "/TEMPLATES/");
+  strcat(dir, fname);
+
+  if (!BeginSD()) {
+    //Serial.println("SD failed to initialize.");
+    digitalWrite(HYPNOS_3VR, HIGH);
+    return false;
+  }
+
+  //Serial.println("SD initialized successfully, checking directory...");
+
+  if (!SD.exists(dir)) {
+    digitalWrite(HYPNOS_3VR, HIGH);
+    return false;
+  }
+
+  //Serial.println("Directory found. Opening file...");
+
+  data = SD.open(dir, FILE_READ);
+
+  if (!data) {
+    digitalWrite(HYPNOS_3VR, HIGH);
+    return false;
+  }
+
+  //int fsize
+
+
+  // compute square root of the sum of the template squared
+  templateSqrtSumSq = 0;
+  long m = 0;
+  for (int t = 0; t < freqWinCount; t++) {
+    for (int f = 0; f < FFT_WIN_SIZE / 2; f++) {
+      m = templateData[t][f];
+      templateSqrtSumSq += m * m;
+    }
+  }
+  // store sqaure root of template sum squared
+  templateSqrtSumSq = sqrt(templateSqrtSumSq);
+
+  return true;
+}
+
+// do cross correlation between template and processed frequency data... return correlation coefficient
+float piedPiper::CrossCorrelation() {
+  float freqsSqrtSumSq = 0;
+
+  // compute square root of the sum squared of the current freqs
+  long m = 0;
+  for (int t = 0; t < freqWinCount; t++) {
+    for (int f = 0; f < FFT_WIN_SIZE / 2; f++) {
+      m = freqs[t][f];
+      freqsSqrtSumSq += m * m;
+    }
+  }
+
+  // storing inverse of the product of square root sum squared of template and freqs (done to reduce use of division)
+  freqsSqrtSumSq = sqrt(freqsSqrtSumSq) * templateSqrtSumSq;
+  // ensuring to not divide by 0
+  freqsSqrtSumSq = freqsSqrtSumSq > 0.0 ? 1.0 / freqsSqrtSumSq : 1.0;
+
+  // start correlation at latest freqs window (freqsPtr - 1)
+  int tempT = freqsPtr == 0 ? freqWinCount - 1 : freqsPtr - 1;
+
+  // computing dot product and correlation coefficient
+  float correlationCoefficient = 0;
+  for (int t = 0; t < freqWinCount; t++) {
+    for (int f = 0; f < FFT_WIN_SIZE / 2; f++) {
+      correlationCoefficient += templateData[t][f] * freqs[tempT][f] * freqsSqrtSumSq;
+    }
+    tempT = IterateCircularBufferPtr(tempT, freqWinCount);
+  }
+  
+  return correlationCoefficient;
 }
 
 
@@ -382,12 +478,18 @@ bool piedPiper::CheckFreqDomain(int t)
 
   int count = 0;
 
+  //const float scaledSigThresh = SIG_THRESH * FFT_WINDOW_SIZE / 2;
+
+  // check fundamental frequency at first iteration, and for harmonics in next iterations
   for (int h = 1; h <= HARMONICS; h++)
   {
+    // check if fundamental frequency (TGT_FREQ) +- FREQ_MARGIN contains a peak
     for (int i = (h * lowerIdx); i <= (h * upperIdx); i++)
     {
+      // checks if current magnitude is a peak, by comparing with previous and next magnitudes
       if (((freqs[t][i + 1] - freqs[t][i]) < 0) && ((freqs[t][i] - freqs[t][i - 1]) > 0))
       {
+        // check if magnitude is above SIG_THRESH, increment count if so
         if (freqs[t][i] > SIG_THRESH)
         {
           count++;

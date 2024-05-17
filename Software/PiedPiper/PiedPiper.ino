@@ -26,8 +26,8 @@ char playback_filename[9] = "BMSB.PAD";
 void setup() {
   // Begin serial communication and configure the analog read and write resolutions to their maximum possible values.
   Serial.begin(2000000);
-  analogReadResolution(12);
-  analogWriteResolution(12);
+  analogReadResolution(ANALOG_RES);
+  analogWriteResolution(ANALOG_RES);
   delay(4000);
 
   Serial.println("Initializing");
@@ -78,14 +78,8 @@ void setup() {
 
       //Serial.println(dir);
 
-      if (SD.exists(dir))
-      {
-        pn++;
-      }
-      else
-      {
-        break;
-      }
+      if (SD.exists(dir)) pn++;
+      else break;
     }
 
     // Set the photo number to match the number of photos inside the directory.

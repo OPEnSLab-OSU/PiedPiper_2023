@@ -1,19 +1,41 @@
-/*
-  This code is intended for stripped down version of Pied Piper which performs intermittent playbacks based on operation intervals
-  that are stored on the SD card. The code performs in the following manner:
-    1. In setup(): all necassary data is loaded from the SD card, such as the playback sound (*.PAD) and playback intervals 
-        (PBINT.txt). If all data is successfully loaded from the SD card and RTC is initialized, then RTC alarm is set to reset
-        the device when the alarm goes off. The alarm is set based on the following conditions:
-          a. The current time is within the time of a playback interval - the alarm is set to fire at the time corresponding 
-              to the end of the current playback interval (i.e: if playback interval is between 5:00 and 6:00, the alarm will fire
-              at 6:00). The device will perform the tasks assigned in loop() until the RTC alarm goes off.
-          b. The current time is not is not within a playback interval - the alarm is set to fire at the time corresponding to the
-              next available operation interval (i.e. if the next available playback interval is between 7:00 and 8:00, the alarm will
-              fire at 7:00). The device will sleep in the "OFF" mode until RTC alarm goes off.
-    2. In loop(): At this moment Playback() is called continously which continously performs playback, but more tasks can be added in
-        future versions.
-*/
+/**
+ * @file PiedPiperPlaybackV3.ino
+ * 
+ * @mainpage Pied Piper Stripped Software 
+ *
+ * @section description Description
+ * This code is intended for stripped down version of Pied Piper which performs intermittent playbacks based on operation intervals
+ * that are stored on the SD card. The code performs in the following manner:
+ * 1. In setup(): all necassary data is loaded from the SD card, such as the playback sound (*.PAD) and playback intervals 
+ *     (PBINT.txt). If all data is successfully loaded from the SD card and RTC is initialized, then RTC alarm is set to reset
+ *     the device when the alarm goes off. The alarm is set based on the following conditions:
+ *       a. The current time is within the time of a playback interval - the alarm is set to fire at the time corresponding 
+ *           to the end of the current playback interval (i.e: if playback interval is between 5:00 and 6:00, the alarm will fire
+ *           at 6:00). The device will perform the tasks assigned in loop() until the RTC alarm goes off.
+ *       b. The current time is not is not within a playback interval - the alarm is set to fire at the time corresponding to the
+ *           next available operation interval (i.e. if the next available playback interval is between 7:00 and 8:00, the alarm will
+ *           fire at 7:00). The device will sleep in the "OFF" mode until RTC alarm goes off.
+ * 2. In loop(): At this moment Playback() is called continously which continously performs playback, but more tasks can be added in
+ *     future versions.
+ *
+ * @section libraries Libraries
+ * - SD, SPI, Wire, RTCLib
+ *  - used for reading and writing data to SD card, and interacting with RTC
+ * - SAMDTimerInterrupt
+ *  - timer interrupt library for SAMD boards. Used for performing playback at some sample rate
+ *
+ * @section todo TODO
+ * - Make it possible to set settings based on a .settings file on SD card rather than modifing globals in the code such as playback_filename and DEFAULT_PLAYBACK_INT macro
+ * - Add possibility to set delay between playbacks
+ * - Add more tasks for device to perform in loop (if requested)
+ *
+ * @section author Author
+ *  - Created by Mykyta (Nick) Synytsia and Vincent Vaughn (May 7, 2024)
+ *
+ * Copyright (c) 2024 OSU OPEnSLab. All rights reserved.
+ */
 
+// Libraries
 #include <Arduino.h>
 #include <SD.h>
 #include <SPI.h>
@@ -21,106 +43,106 @@
 #include "RTClib.h"
 #include "SAMDTimerInterrupt.h"
 
-// name of the file used for playback
-const char playback_filename[] = "BMSB.PAD";
+const char playback_filename[] = "BMSB.PAD"; ///< name of the file used for playback
 
-#define AUD_OUT_SAMPLE_FREQ 4096  // original sample rate of playback file
-#define AUD_OUT_TIME 8  // maximum length of playback file in seconds
+// Defines
+#define AUD_OUT_SAMPLE_FREQ 4096  ///< original sample rate of playback file
+#define AUD_OUT_TIME 8  ///< maximum length of playback file in seconds
 
-#define SINC_FILTER_UPSAMPLE_RATIO 8 // sinc filter upsample ratio, ideally should be a power of 2
-#define SINC_FILTER_ZERO_X 7    // sinc filter number of zero crossings, more crossings will produce a cleaner result but will also use more processor time 
+#define SINC_FILTER_UPSAMPLE_RATIO 8 ///< sinc filter upsample ratio, ideally should be a power of 2
+#define SINC_FILTER_ZERO_X 7    ///< sinc filter number of zero crossings, more crossings will produce a cleaner result but will also use more processor time 
 
-#define SD_OPEN_ATTEMPT_COUNT 10  // number of times to retry SD.begin()
-#define SD_OPEN_RETRY_DELAY_MS 100  // delay between SD.begin() attempts
+#define SD_OPEN_ATTEMPT_COUNT 10  ///< number of times to retry SD.begin()
+#define SD_OPEN_RETRY_DELAY_MS 100  ///< delay between SD.begin() attempts
 
-#define AUD_OUT A0    // Audio output pin
+#define AUD_OUT A0    ///< Audio output pin
 
-#define HYPNOS_5VR 6  // Hypnos 5 volt rail
-#define HYPNOS_3VR 5  // Hypnos 3 volt rail
+#define HYPNOS_5VR 6  ///< Hypnos 5 volt rail
+#define HYPNOS_3VR 5  ///< Hypnos 3 volt rail
 
-#define SD_CS 11 // Chip select for SD
-#define AMP_SD 9  // Amplifier enable
+#define SD_CS 11 ///< Chip select for SD
+#define AMP_SD 9  ///< Amplifier enable
 
-#define DEFAULT_PLAYBACK_INT 1440 // Briefly wake device after this many minutes if no playback intervals are defined (PBINT.txt is empty)
-                                  // If set to 0, playback will be performed forever and operation times defined in PBINT.txt will be ignored.
+#define DEFAULT_PLAYBACK_INT 1440 ///< Briefly wake device after this many minutes if no playback intervals are defined (PBINT.txt is empty) If set to 0, playback will be performed forever and operation times defined in PBINT.txt will be ignored.
 
-// various sleep modes available on the Feather M4 Express
+// Types
+
+/** sleep modes available on the Feather M4 Express. */
 enum SLEEPMODES
 {
-  IDLE0 = 0x0,
-  IDLE1 = 0x1,
-  IDLE2 = 0x2,
-  STANDBY = 0x4,    // STANDBY sleep mode can exited with a interrupt (this sleep mode is good, but draws ~20mA by default)
-  HIBERNATE = 0x5,  // HIBERNATE sleep mode can only be exited with a device reset
-  BACKUP = 0x6,     // BACKUP sleep mode can only be exited with a device reset
-  OFF = 0x7         // OFF sleep mode can only be exited with a device reset (best sleep mode to use for least power consumption)
+  IDLE0 = 0x0,      ///< IDLE0
+  IDLE1 = 0x1,      ///< IDLE1
+  IDLE2 = 0x2,      ///< IDLE2
+  STANDBY = 0x4,    ///< STANDBY sleep mode can exited with a interrupt (this sleep mode is good, but draws ~20mA by default)
+  HIBERNATE = 0x5,  ///< HIBERNATE sleep mode can only be exited with a device reset
+  BACKUP = 0x6,     ///< BACKUP sleep mode can only be exited with a device reset
+  OFF = 0x7         ///< OFF sleep mode can only be exited with a device reset (best sleep mode to use for least power consumption)
 };
 
-// For this version, "OFF" sleep mode is used which results in the least power consumption (draws less than 1mA)
-SLEEPMODES sleepmode = OFF;
+/** data structure for storing operation times parsed from the PBINT.txt file on SD card. */
+struct opTime {
+  short hour;   ///< the corresponding hour
+  short minute; ///< the corresponding minute
+  int minutes;  ///< total minutes (hour * 60 + minute)
+};
 
-/* Variables related to audio output */
+// Global Constants
+const SLEEPMODES sleepmode = OFF; ///< For this version, "OFF" sleep mode is used which results in the least power consumption (draws less than 1mA)
 
-// output sample delay time, essentially how often the timer interrupt will fire (in microseconds)
-const int outputSampleDelayTime = 1000000 / (AUD_OUT_SAMPLE_FREQ * SINC_FILTER_UPSAMPLE_RATIO);
+const int outputSampleDelayTime = 1000000 / (AUD_OUT_SAMPLE_FREQ * SINC_FILTER_UPSAMPLE_RATIO); ///< output sample delay time, essentially how often the timer interrupt will fire (in microseconds)
 
-// output sample buffer stores the values corresponding to the playback file that is loaded from the SD card
-short outputSampleBuffer[AUD_OUT_SAMPLE_FREQ * AUD_OUT_TIME];
-volatile int outputSampleBufferIdx = 0; // stores the position of the current sample for playback
-volatile short nextOutputSample = 2048;
+const int sincTableSizeUp = (2 * SINC_FILTER_ZERO_X + 1) * SINC_FILTER_UPSAMPLE_RATIO - SINC_FILTER_UPSAMPLE_RATIO + 1; ///< size of sinc filter table
 
-// stores the total number of samples loaded from the playback file. 
-// Originally, this is set to the maximum number of samples that can be stored (SAMPLE_RATE * AUD_OUT_TIME),
-// but since our playback file will not always be exactly AUD_OUT_TIME seconds, this value
-// will change when LoadSound() is called.
-int playbackSampleCount = AUD_OUT_SAMPLE_FREQ * AUD_OUT_TIME;
+// Global Variables
+short outputSampleBuffer[AUD_OUT_SAMPLE_FREQ * AUD_OUT_TIME]; ///< output sample buffer stores the values corresponding to the playback file that is loaded from the SD card
+volatile int outputSampleBufferIdx = 0; ///< stores the position of the current sample for playback
+volatile short nextOutputSample = 2048; ///< stores value of the next output sample for playing back audio
 
-// stores values of sinc function (sin(x) / x) for upsampling the samples stored in outputSampleBuffer during Playback()
-const int sincTableSizeUp = (2 * SINC_FILTER_ZERO_X + 1) * SINC_FILTER_UPSAMPLE_RATIO - SINC_FILTER_UPSAMPLE_RATIO + 1;
-float sincFilterTableUpsample[sincTableSizeUp];
+int playbackSampleCount = AUD_OUT_SAMPLE_FREQ * AUD_OUT_TIME; ///< Stores the total number of sample loaded from the playback file. Originally this is set to the maximum number of samples that can be stored SAMPLE_RATE * AUD_OUT_TIME, but this value is updated upon call to LoadSound() since our playback sound isn't garanteed to be exactly AUD_OUT_TIME seconds long
 
-// circular input buffer for upsampling
-volatile short upsampleFilterInput[sincTableSizeUp];
-volatile int upsampleInputIdx = 0;  // next position in upsample input buffer
-volatile int upsampleInputCount = 0;  // upsample count
+float sincFilterTableUpsample[sincTableSizeUp]; ///< stores values of sinc function (sin(x) / x) for upsampling the samples stored in outputSampleBuffer during Playback() using outputUpsampledSample()
 
-/* used for reading files from SD */
-File data;
+volatile short upsampleFilterInput[sincTableSizeUp]; ///< sinc filter input buffer for upsampling
+volatile int upsampleInputIdx = 0;  ///< next position in upsample input buffer
+volatile int upsampleInputCount = 0;  ///< upsample count, determines whether to pad with zeroes or read next value from outputSampleBuffer
 
-/* object for interacting with rtc */
-RTC_DS3231 rtc;
+opTime* operationTimes = NULL; ///< *operationTimes is a dynamically allocated array which stores parsed operation times from PBINT.txt, dynamic memory is used for this because we do not know how many operation times are defined in PBINT.txt during compilation
+int numOperationTimes = 0; ///< the number of elements in operationTimes array
 
-/* SAMD timer interrupt */
-SAMDTimer ITimer(TIMER_TC3);
+File data;  ///< used for reading files from SD
 
-/* Functions to start and stop the ISR timer */
+RTC_DS3231 rtc; ///< object for interacting with rtc
+
+SAMDTimer ITimer(TIMER_TC3); ///< SAMD timer interrupt 
+
+/**
+ * Disable timer interrupt
+ *
+ * This is used to disable the interrupt caused by timer
+ */
 void stopISRTimer()
 {
   ITimer.detachInterrupt();
   ITimer.restartTimer();
 }
 
+/**
+ * Enable timer interrupt
+ *
+ * @param interval_us   The interval between each alarm in microseconds
+ * @param fnPtr         Pointer to callback function
+ */
 void startISRTimer(const unsigned long interval_us, void(*fnPtr)())
 {
   ITimer.attachInterruptInterval(interval_us, fnPtr);
 }
 
-/* Variables related to storing data that is read from operation intervals file (PBINT.txt) */
-
-// data structure for storing operation times parsed from the PBINT.txt file on SD card
-struct opTime {
-  short hour;
-  short minute;
-  int minutes;
-};
-
-// *operationTimes is a dynamically allocated array which stores parsed operation times from PBINT.txt
-// Dynamic memory is used for this because we do not know how many operation times are defined in PBINT.txt during compilation
-opTime* operationTimes = NULL;
-// the number of elements in operationTimes array
-int numOperationTimes = 0;
-
-/* Initialization routine */
+/**
+ * Initialization routine
+ *
+ * Ensures SD, RTC can and are properly initialized. If so, playback sound and operation times are loaded, if a failure is detected fail flash is initiated indefinetely.
+ * Otherwise, on success, a setup playback is performed, and device determines whether to go to sleep or perform tasks that are in loop().
+ */
 void setup() {
   // begin Serial, and ensure that our analogWrite() resolution is set to the maximum resolution (2^12 == 4096)
   Serial.begin(2000000);
@@ -215,13 +237,19 @@ void setup() {
   }
 }
 
-/* Tasks to perform when device is awake */
+/**
+ * Tasks that are to be performed when the device is awake
+ *
+ * At this time the only task that is performed is Playback(), but more can be added in future revision
+ */ 
 void loop() {
   Playback();
   // may add option to add delay between playbacks in the future (will likely be set in PBINT.txt)
 }
 
-/* Set pin modes */
+/**
+ * Configures pin modes for all pins
+ */
 void configurePins() {
   pinMode(AUD_OUT, OUTPUT);
   pinMode(HYPNOS_5VR, OUTPUT);
@@ -230,7 +258,14 @@ void configurePins() {
   pinMode(AMP_SD, OUTPUT);
 }
 
-/* Put device to sleep in selected sleep mode */
+/**
+ * Puts device to sleep in selected sleep mode
+ *
+ * Sleep modes such as IDLE through STANDBY return to the instruction after __WFI(), in this case the return address of the intruction following goToSleep()
+ * However, when going to sleep in HIBRATE though OFF mode, the only way to exit is by resetting the board (At least on the Feather M4 Express)
+ *
+ * @param mode  the sleep mode to use
+ */
 void goToSleep(SLEEPMODES mode) {
   Serial.println("Going to sleep");
 
@@ -247,7 +282,11 @@ void goToSleep(SLEEPMODES mode) {
   __WFI();
 }
 
-/* load operation times from "PBINT.txt" */
+/**
+ * load and store operation times from "PBINT.txt" to dynamically allocated operation times array.
+ *
+ * @return True on success
+ */
 bool LoadOperationTimes() {
 
   char dir[17];
@@ -278,9 +317,9 @@ bool LoadOperationTimes() {
   // read and store playback intervals
   while(data.available()) {
     //int minutes = data.readStringUNtil('\n').toInt();
-    short s_hour = data.readStringUntil(':').toInt();
-    short s_minute = data.readStringUntil('\n').toInt();
-    addOperationTime(s_hour, s_minute);
+    short hour = data.readStringUntil(':').toInt();
+    short minute = data.readStringUntil('\n').toInt();
+    addOperationTime(hour, minute);
   }
 
   data.close();
@@ -288,16 +327,21 @@ bool LoadOperationTimes() {
   digitalWrite(HYPNOS_3VR, HIGH);
 
   // print playback intervals
-  Serial.println("Printing operation hours");
+  Serial.println("Printing operation hours...");
   for (int i = 0; i < numOperationTimes; i = i + 2) {
-    Serial.printf("%02d:%02d - %02d:%02d\n", operationTimes[i].hour, operationTimes[i].minute, operationTimes[i + 1].hour, operationTimes[i + 1].minute);
+    Serial.printf("\t%02d:%02d - %02d:%02d\n", operationTimes[i].hour, operationTimes[i].minute, operationTimes[i + 1].hour, operationTimes[i + 1].minute);
   }
   Serial.println();
 
   return true;
 }
 
-/* allocate memory and store operation time */
+/**
+ * allocate memory to store operation time into dynamically allocated array operationTimes, this function is intended to be used by LoadOperationTimes().
+ *
+ * @param hour  the hour
+ * @param minute the minute
+ */
 void addOperationTime(int hour, int minute) {
   // increment size of operatimesTimes array
   numOperationTimes += 1;
@@ -310,9 +354,15 @@ void addOperationTime(int hour, int minute) {
 }
 
 
-/* Set RTC alarm to the corresponding operation time. If RTC time is within an operation interval,
- RTC alarm is set to the end of this operation interval and function returns True. Otherwise,
- RTC alarm is set to the start of the next operation interval and function returns False. */
+/**
+ * Set RTC alarm to corresponding operation time based on the time of the RTC. 
+ *
+ * If RTC time is within an operation interval, the device should be awake, alarm is set the the end of that interval.
+ * Otherwise, RTC is set to the start of the next operation true. 
+ * If no operation times are defined in PBINT.txt, alarm will occur every @DEFAULT_PLAYBACK_INT minutes.
+ *
+ * @return True if RTC time is within an operation interval (indicating that device should be awake)
+ */
 bool setupOperation() {
   // perform playback continously if DEFAULT_PLAYBACK_INT is 0
   if (DEFAULT_PLAYBACK_INT == 0) return 1;
@@ -404,9 +454,16 @@ bool setupOperation() {
   return performPlayback;
 }
 
-/* Loads playback sound file from the SD card into the audio output buffer as samples. 
- Once loaded, the data will remain in-place until LoadSound() is called again. This means
- that all future calls to Playback() will play back the same audio data. */
+/**
+ * Loads playback sound file from the SD card and stores to outputSampleBuffer as samples
+ * 
+ * Once loaded, the data will remain in-place until LoadSound() is called again. This means
+ * that all future calls to Playback() will play back the same audio data.
+ *
+ * @param fname the name of the file to load from SD card
+ *
+ * @return True if playback sound was loaded successfully
+ */
 bool LoadSound(char* fname) {
   ResetSPI(); 
   digitalWrite(HYPNOS_3VR, LOW);
@@ -470,7 +527,12 @@ bool LoadSound(char* fname) {
   return true;
 }
 
-/* Plays back the sound loaded on SD card using the vibration exciter */
+/**
+ * Plays back the playback sound that is loaded from SD card 
+ *
+ * This works by using the timer interrupt, which is triggered at @SINC_FILTER_UPSAMPLE_RATIO * @SAMPLE_RATE Hz.
+ * Although the playback sound was stored at sample rate of @SAMPLE_RATE Hz, a digital sinc filter is used to upsample this data in realtime to the necassary sample rate.
+ */
 void Playback() {
   stopISRTimer();
 
@@ -483,14 +545,14 @@ void Playback() {
 
   //Serial.println("Amplifier enabled. Beginning playback ISR...");
 
-  // begin outputting audio using timer interrupt
+  // begin outputting samples using timer interrupt
   startISRTimer(outputSampleDelayTime, OutputUpsampledSample);
 
   // wait for full duration of playback sound to be played
   while (outputSampleBufferIdx < playbackSampleCount)
     ;
 
-  // store timer interrupt
+  // stop timer interrupt
   stopISRTimer();
 
   // restore output buffer index
@@ -505,7 +567,9 @@ void Playback() {
   //Serial.println("Amplifer shut down.");
 }
 
-/* writes a sample to AUD_OUT and replaces sample with next upsampled value, this function is called by timer interrupt */
+/**
+ * writes a sample to AUD_OUT and calculates next sample using sinc filter, this function is called by timer interrupt.
+ */
 void OutputUpsampledSample() {
   // write sample to AUD_OUT
   analogWrite(AUD_OUT, nextOutputSample);
@@ -536,8 +600,9 @@ void OutputUpsampledSample() {
 }
 
 
-/* Calculates sinc filter table for upsampling a signal by @ratio
- @nz is the number of zeroes to use for the table */
+/**
+ * Calculates sinc filter table for upsampling a signal by @SINC_FILTER_UPSAMPLE_RATIO
+ */
 void calculateUpsampleSincFilterTable() {
   int ratio = SINC_FILTER_UPSAMPLE_RATIO;
   int nz = SINC_FILTER_ZERO_X;
@@ -576,7 +641,9 @@ void calculateUpsampleSincFilterTable() {
   }
 }
 
-/* Reset SPI pins, called prior to SPI.begin() as a precaution */
+/**
+ * Reset SPI pins, called prior to SPI.begin() as a precaution
+ */
 void ResetSPI() {
   pinMode(23, INPUT);
   pinMode(24, INPUT);
@@ -589,7 +656,11 @@ void ResetSPI() {
   pinMode(10, OUTPUT);
 }
 
-/* Attempts to initialize SD card on Hypnos */
+/**
+ * Attempts to initialize SD card on Hypnos
+ *
+ * @return True on successful initialization
+ */
 bool BeginSD() {
   for (int i = 0; i < SD_OPEN_ATTEMPT_COUNT; i++) {
     if (SD.begin(SD_CS)) return true;
@@ -601,7 +672,9 @@ bool BeginSD() {
   return false;
 }
 
-/* Flashes Hypnos 3VR LED to indicate initialization error */
+/**
+ * Flashes Hypnos 3VR LED to indicate initialization error
+ */
 void initializationFailFlash() {
   while(1) {
     digitalWrite(HYPNOS_3VR, LOW);
