@@ -22,7 +22,9 @@
  * - SD, SPI, Wire, RTCLib
  *  - used for reading and writing data to SD card, and interacting with RTC
  * - SAMDTimerInterrupt
- *  - timer interrupt library for SAMD boards. Used for performing playback at some sample rate
+ *  - timer interrupt library for SAMD boards. Used for performing playback
+ * - Adafruit_NeoPixel
+ *  - Used for indicating initialization errors
  *
  * @section todo TODO
  * - Make it possible to set settings based on a .settings file on SD card rather than modifing globals in the code such as playback_filename and DEFAULT_PLAYBACK_INT macro
@@ -42,6 +44,9 @@
 #include <Wire.h>
 #include "RTClib.h"
 #include "SAMDTimerInterrupt.h"
+#include <Adafruit_NeoPixel.h>
+
+Adafruit_NeoPixel indicator(1, 8, NEO_GRB + NEO_KHZ800);
 
 const char playback_filename[] = "BMSB.PAD"; ///< name of the file used for playback
 
@@ -222,6 +227,8 @@ void setup() {
 
   // calculate sinc filter table for upsampling values stored in outputSampleBuffer
   calculateUpsampleSincFilterTable();
+
+  initializationSuccessFlash();
 
   // perform setup playback to confirm that Playback() is working (just a precaution, can be commented out)
   Serial.println("Performing setup playback...");
@@ -673,13 +680,34 @@ bool BeginSD() {
 }
 
 /**
- * Flashes Hypnos 3VR LED to indicate initialization error
+ * Flashes LED to indicate initialization error
  */
 void initializationFailFlash() {
+  indicator.begin();
+  indicator.clear();
   while(1) {
-    digitalWrite(HYPNOS_3VR, LOW);
+    indicator.setPixelColor(0, 128, 0, 0);
+    indicator.show();
     delay(500);
-    digitalWrite(HYPNOS_3VR, HIGH);
+    indicator.setPixelColor(0, 0, 0, 0);
+    indicator.show();
     delay(500);
   }
+}
+
+/**
+ * Flashes LED green to indicate initialization success
+ */
+void initializationSuccessFlash() {
+  indicator.begin();
+  indicator.clear();
+
+  delay(500);
+  indicator.setPixelColor(0, 0, 255, 0);
+  indicator.show();
+  delay(500);
+  indicator.setPixelColor(0, 0, 0, 0);
+  indicator.show();
+  delay(500);
+  indicator.clear();
 }
