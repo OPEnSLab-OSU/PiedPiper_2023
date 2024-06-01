@@ -1,0 +1,3 @@
+playback_filename: BMSB.PAD
+playback_interval: PBINT.txt
+
