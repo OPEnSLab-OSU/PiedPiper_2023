@@ -68,7 +68,11 @@ $(function() {
 <div class="textblock"><h1><a class="anchor" id="description"></a>
 Description</h1>
 <p>This code is intended for stripped down version of Pied Piper which performs intermittent playbacks based on operation intervals that are stored on the SD card. The code performs in the following manner:</p><ol type="1">
-<li>In <a class="el" href="PiedPiperStripped_8ino.html#a4fc01d736fe50cf5b977f755b675f11d">setup()</a>: all necassary data is loaded from the SD card, such as the playback sound (*.PAD) and playback intervals (PBINT.txt). If all data is successfully loaded from the SD card and RTC is initialized, then RTC alarm is set to reset the device when the alarm goes off. The alarm is set based on the following conditions: a. The current time is within the time of a playback interval - the alarm is set to fire at the time corresponding to the end of the current playback interval (i.e: if playback interval is between 5:00 and 6:00, the alarm will fire at 6:00). The device will perform the tasks assigned in <a class="el" href="PiedPiperStripped_8ino.html#afe461d27b9c48d5921c00d521181f12f">loop()</a> until the RTC alarm goes off. b. The current time is not is not within a playback interval - the alarm is set to fire at the time corresponding to the next available operation interval (i.e. if the next available playback interval is between 7:00 and 8:00, the alarm will fire at 7:00). The device will sleep in the "OFF" mode until RTC alarm goes off.</li>
+<li>In <a class="el" href="PiedPiperStripped_8ino.html#a4fc01d736fe50cf5b977f755b675f11d">setup()</a>: all necassary data is loaded from the SD card, filenames for playback sound and playback intervals file are loaded first from the ("settings.txt") file on SD card. Following this, the playback sound (*.PAD) and playback intervals (*.txt) are loaded. If all data is successfully loaded from the SD card and RTC is initialized device flashes NeoPixel green to indicate success. Otherwise, NeoPixel flashes red indefinetely. On success device perfroms a setup playback and the RTC alarm is set to reset the device when the alarm goes off based on the following conditions:<ul>
+<li>The current time is within the time of a playback interval - the alarm is set to fire at the time corresponding to the end of the current playback interval (i.e: if playback interval is between 5:00 and 6:00, the alarm will fire at 6:00). The device will perform the tasks assigned in <a class="el" href="PiedPiperStripped_8ino.html#afe461d27b9c48d5921c00d521181f12f">loop()</a> until the RTC alarm goes off.</li>
+<li>The current time is not is not within a playback interval - the alarm is set to fire at the time corresponding to the next available operation interval (i.e. if the next available playback interval is between 7:00 and 8:00, the alarm will fire at 7:00). The device will sleep in the "OFF" mode until RTC alarm goes off.</li>
+</ul>
+</li>
 <li>In <a class="el" href="PiedPiperStripped_8ino.html#afe461d27b9c48d5921c00d521181f12f">loop()</a>: At this moment <a class="el" href="PiedPiperStripped_8ino.html#a57e4ed140620dd3e177cbd7c92660254">Playback()</a> is called continously which continously performs playback, but more tasks can be added in future versions.</li>
 </ol>
 <h1><a class="anchor" id="libraries"></a>
@@ -90,7 +94,6 @@ Libraries</h1>
 <h1><a class="anchor" id="todo"></a>
 TODO</h1>
 <ul>
-<li>Make it possible to set settings based on a .settings file on SD card rather than modifing globals in the code such as playback_filename and DEFAULT_PLAYBACK_INT macro</li>
 <li>Add possibility to set delay between playbacks</li>
 <li>Add more tasks for device to perform in loop (if requested)</li>
 </ul>

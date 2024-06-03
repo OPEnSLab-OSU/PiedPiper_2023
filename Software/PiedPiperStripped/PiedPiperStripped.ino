@@ -6,17 +6,19 @@
  * @section description Description
  * This code is intended for stripped down version of Pied Piper which performs intermittent playbacks based on operation intervals
  * that are stored on the SD card. The code performs in the following manner:
- * 1. In setup(): all necassary data is loaded from the SD card, such as the playback sound (*.PAD) and playback intervals 
- *     (PBINT.txt). If all data is successfully loaded from the SD card and RTC is initialized, then RTC alarm is set to reset
- *     the device when the alarm goes off. The alarm is set based on the following conditions:
- *       a. The current time is within the time of a playback interval - the alarm is set to fire at the time corresponding 
- *           to the end of the current playback interval (i.e: if playback interval is between 5:00 and 6:00, the alarm will fire
- *           at 6:00). The device will perform the tasks assigned in loop() until the RTC alarm goes off.
- *       b. The current time is not is not within a playback interval - the alarm is set to fire at the time corresponding to the
- *           next available operation interval (i.e. if the next available playback interval is between 7:00 and 8:00, the alarm will
- *           fire at 7:00). The device will sleep in the "OFF" mode until RTC alarm goes off.
+ * 1. In setup(): all necassary data is loaded from the SD card, filenames for playback sound and playback intervals file are loaded
+ *    first from the ("settings.txt") file on SD card. Following this, the playback sound (*.PAD) and playback intervals (*.txt) are loaded. 
+ *    If all data is successfully loaded from the SD card and RTC is initialized device flashes NeoPixel green to indicate success.
+ *    Otherwise, NeoPixel flashes red indefinetely. On success device perfroms a setup playback and the RTC alarm is set to reset the 
+ *    device when the alarm goes off based on the following conditions:
+ *    - The current time is within the time of a playback interval - the alarm is set to fire at the time corresponding 
+ *      to the end of the current playback interval (i.e: if playback interval is between 5:00 and 6:00, the alarm will fire
+ *      at 6:00). The device will perform the tasks assigned in loop() until the RTC alarm goes off.
+ *    - The current time is not is not within a playback interval - the alarm is set to fire at the time corresponding to the
+ *      next available operation interval (i.e. if the next available playback interval is between 7:00 and 8:00, the alarm will
+ *      fire at 7:00). The device will sleep in the "OFF" mode until RTC alarm goes off.
  * 2. In loop(): At this moment Playback() is called continously which continously performs playback, but more tasks can be added in
- *     future versions.
+ *    future versions.
  *
  * @section libraries Libraries
  * - SD, SPI, Wire, RTCLib
@@ -27,7 +29,6 @@
  *  - Used for indicating initialization errors
  *
  * @section todo TODO
- * - Make it possible to set settings based on a .settings file on SD card rather than modifing globals in the code such as playback_filename and DEFAULT_PLAYBACK_INT macro
  * - Add possibility to set delay between playbacks
  * - Add more tasks for device to perform in loop (if requested)
  *
@@ -66,7 +67,7 @@
 
 #define DEFAULT_PLAYBACK_INT 1440 ///< Briefly wake device after this many minutes if no playback intervals are defined (PBINT.txt is empty) If set to 0, playback will be performed forever and operation times defined in PBINT.txt will be ignored.
 
-const char settings_filename[] = "settings.txt"; ///< Name of file to load settings from such as name of playback file and opeation intervals file.
+const char settings_filename[] = "settings.txt"; ///< Name of file to load settings from such as name of playback and operation intervals filenames
 
 // Types
 
@@ -148,8 +149,9 @@ void startISRTimer(const unsigned long interval_us, void(*fnPtr)())
 /**
  * Initialization routine
  *
- * Ensures SD, RTC can and are properly initialized. If so, playback sound and operation times are loaded, if a failure is detected fail flash is initiated indefinetely.
- * Otherwise, on success, a setup playback is performed, and device determines whether to go to sleep or perform tasks that are in loop().
+ * Ensures SD, RTC can and are properly initialized. If so, playback sound and operation times are loaded based on filenames defined in
+ * "settings.txt" on SD card, if a failure is detected, a NeoPixel flashes red indefinetely. Otherwise, on success, NeoPixel flashes green,
+ * and setup playback is performed. Finally, device determines whether to go to sleep or perform tasks that are in loop().
  */
 void setup() {
   // set LED to yellow upon start of initialization...
@@ -337,8 +339,8 @@ void goToSleep(SLEEPMODES mode) {
   PM->SLEEPCFG.bit.SLEEPMODE = mode;
   while(PM->SLEEPCFG.bit.SLEEPMODE != mode);
 
-  // go to sleep by disabling serial bus (__DSB) and calling wait for interrupt (__WFI)
-  __DSB();
+  // go to sleep by ensuring all memory accesses are complete with (__DSB) and calling wait for interrupt (__WFI)
+  __DSB(); // since we are using "OFF" sleep mode, this may not be necassary
   __WFI();
 }
 

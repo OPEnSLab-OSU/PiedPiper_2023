@@ -203,7 +203,7 @@ Functions</h2></td></tr>
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="var-members"></a>
 Variables</h2></td></tr>
 <tr class="memitem:ad56a3d9df2dada704805e02951fda841"><td class="memItemLeft" align="right" valign="top">const char&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="PiedPiperStripped_8ino.html#ad56a3d9df2dada704805e02951fda841">settings_filename</a> [] = &quot;settings.txt&quot;</td></tr>
-<tr class="memdesc:ad56a3d9df2dada704805e02951fda841"><td class="mdescLeft">&#160;</td><td class="mdescRight">Name of file to load settings from such as name of playback file and opeation intervals file.  <a href="PiedPiperStripped_8ino.html#ad56a3d9df2dada704805e02951fda841">More...</a><br /></td></tr>
+<tr class="memdesc:ad56a3d9df2dada704805e02951fda841"><td class="mdescLeft">&#160;</td><td class="mdescRight">Name of file to load settings from such as name of playback and operation intervals filenames.  <a href="PiedPiperStripped_8ino.html#ad56a3d9df2dada704805e02951fda841">More...</a><br /></td></tr>
 <tr class="separator:ad56a3d9df2dada704805e02951fda841"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a0eeff5e8367f449972a7648bc688975e"><td class="memItemLeft" align="right" valign="top">const <a class="el" href="PiedPiperStripped_8ino.html#a53ef58bdd502817962e5ff18ada74465">SLEEPMODES</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="PiedPiperStripped_8ino.html#a0eeff5e8367f449972a7648bc688975e">sleepmode</a> = <a class="el" href="PiedPiperStripped_8ino.html#a53ef58bdd502817962e5ff18ada74465aac132f2982b98bcaa3445e535a03ff75">OFF</a></td></tr>
 <tr class="memdesc:a0eeff5e8367f449972a7648bc688975e"><td class="mdescLeft">&#160;</td><td class="mdescRight">For this version, "OFF" sleep mode is used which results in the least power consumption (draws less than 1mA)  <a href="PiedPiperStripped_8ino.html#a0eeff5e8367f449972a7648bc688975e">More...</a><br /></td></tr>
@@ -214,24 +214,24 @@ Variables</h2></td></tr>
 <tr class="memitem:a366e2fd381c98142cd18d3f91ead2359"><td class="memItemLeft" align="right" valign="top">const int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="PiedPiperStripped_8ino.html#a366e2fd381c98142cd18d3f91ead2359">sincTableSizeUp</a> = (2 * <a class="el" href="PiedPiperStripped_8ino.html#a8b2ab394bc690fb4ff83187ac1eec852">SINC_FILTER_ZERO_X</a> + 1) * <a class="el" href="PiedPiperStripped_8ino.html#ad46f3292e99b274ab10af94e583dbf31">SINC_FILTER_UPSAMPLE_RATIO</a> - <a class="el" href="PiedPiperStripped_8ino.html#ad46f3292e99b274ab10af94e583dbf31">SINC_FILTER_UPSAMPLE_RATIO</a> + 1</td></tr>
 <tr class="memdesc:a366e2fd381c98142cd18d3f91ead2359"><td class="mdescLeft">&#160;</td><td class="mdescRight">size of sinc filter table  <a href="PiedPiperStripped_8ino.html#a366e2fd381c98142cd18d3f91ead2359">More...</a><br /></td></tr>
 <tr class="separator:a366e2fd381c98142cd18d3f91ead2359"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a3e30e679c93b4f551dd5b0d44c1b71c8"><td class="memItemLeft" align="right" valign="top">short&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="PiedPiperStripped_8ino.html#a3e30e679c93b4f551dd5b0d44c1b71c8">outputSampleBuffer</a> [<a class="el" href="PiedPiperStripped_8ino.html#a451c16a9f8be86b7231bd651b3f1d8a4">AUD_OUT_SAMPLE_FREQ</a> *<a class="el" href="PiedPiperStripped_8ino.html#ae7bb65edc18ea6805461f3ce98621a8b">AUD_OUT_TIME</a>]</td></tr>
-<tr class="memdesc:a3e30e679c93b4f551dd5b0d44c1b71c8"><td class="mdescLeft">&#160;</td><td class="mdescRight">output sample buffer stores the values corresponding to the playback file that is loaded from the SD card  <a href="PiedPiperStripped_8ino.html#a3e30e679c93b4f551dd5b0d44c1b71c8">More...</a><br /></td></tr>
-<tr class="separator:a3e30e679c93b4f551dd5b0d44c1b71c8"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a2271b2937ee78459753c9a97cfb8e295"><td class="memItemLeft" align="right" valign="top">uint16_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="PiedPiperStripped_8ino.html#a2271b2937ee78459753c9a97cfb8e295">outputSampleBuffer</a> [<a class="el" href="PiedPiperStripped_8ino.html#a451c16a9f8be86b7231bd651b3f1d8a4">AUD_OUT_SAMPLE_FREQ</a> *<a class="el" href="PiedPiperStripped_8ino.html#ae7bb65edc18ea6805461f3ce98621a8b">AUD_OUT_TIME</a>]</td></tr>
+<tr class="memdesc:a2271b2937ee78459753c9a97cfb8e295"><td class="mdescLeft">&#160;</td><td class="mdescRight">output sample buffer stores the values corresponding to the playback file that is loaded from the SD card  <a href="PiedPiperStripped_8ino.html#a2271b2937ee78459753c9a97cfb8e295">More...</a><br /></td></tr>
+<tr class="separator:a2271b2937ee78459753c9a97cfb8e295"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a149657b52d9aa4f78555948ebc0661b3"><td class="memItemLeft" align="right" valign="top">volatile int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="PiedPiperStripped_8ino.html#a149657b52d9aa4f78555948ebc0661b3">outputSampleBufferIdx</a> = 0</td></tr>
 <tr class="memdesc:a149657b52d9aa4f78555948ebc0661b3"><td class="mdescLeft">&#160;</td><td class="mdescRight">stores the position of the current sample for playback  <a href="PiedPiperStripped_8ino.html#a149657b52d9aa4f78555948ebc0661b3">More...</a><br /></td></tr>
 <tr class="separator:a149657b52d9aa4f78555948ebc0661b3"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:afd79228a708981fbc75ccd3c3ec9342f"><td class="memItemLeft" align="right" valign="top">volatile short&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="PiedPiperStripped_8ino.html#afd79228a708981fbc75ccd3c3ec9342f">nextOutputSample</a> = 2048</td></tr>
-<tr class="memdesc:afd79228a708981fbc75ccd3c3ec9342f"><td class="mdescLeft">&#160;</td><td class="mdescRight">stores value of the next output sample for playing back audio  <a href="PiedPiperStripped_8ino.html#afd79228a708981fbc75ccd3c3ec9342f">More...</a><br /></td></tr>
-<tr class="separator:afd79228a708981fbc75ccd3c3ec9342f"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:add1e863f6b5a3af87caba0c405d9ef19"><td class="memItemLeft" align="right" valign="top">volatile uint16_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="PiedPiperStripped_8ino.html#add1e863f6b5a3af87caba0c405d9ef19">nextOutputSample</a> = 2048</td></tr>
+<tr class="memdesc:add1e863f6b5a3af87caba0c405d9ef19"><td class="mdescLeft">&#160;</td><td class="mdescRight">stores value of the next output sample for playing back audio  <a href="PiedPiperStripped_8ino.html#add1e863f6b5a3af87caba0c405d9ef19">More...</a><br /></td></tr>
+<tr class="separator:add1e863f6b5a3af87caba0c405d9ef19"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a2fca0a4962bc07fe1010e0f494c74b81"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="PiedPiperStripped_8ino.html#a2fca0a4962bc07fe1010e0f494c74b81">playbackSampleCount</a> = <a class="el" href="PiedPiperStripped_8ino.html#a451c16a9f8be86b7231bd651b3f1d8a4">AUD_OUT_SAMPLE_FREQ</a> * <a class="el" href="PiedPiperStripped_8ino.html#ae7bb65edc18ea6805461f3ce98621a8b">AUD_OUT_TIME</a></td></tr>
 <tr class="memdesc:a2fca0a4962bc07fe1010e0f494c74b81"><td class="mdescLeft">&#160;</td><td class="mdescRight">Stores the total number of sample loaded from the playback file. Originally this is set to the maximum number of samples that can be stored SAMPLE_RATE * AUD_OUT_TIME, but this value is updated upon call to <a class="el" href="PiedPiperStripped_8ino.html#ae19e84783631872424b55189542e0325">LoadSound()</a> since our playback sound isn't garanteed to be exactly AUD_OUT_TIME seconds long.  <a href="PiedPiperStripped_8ino.html#a2fca0a4962bc07fe1010e0f494c74b81">More...</a><br /></td></tr>
 <tr class="separator:a2fca0a4962bc07fe1010e0f494c74b81"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a135a5b2700d254f9273a3408087ae766"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="PiedPiperStripped_8ino.html#a135a5b2700d254f9273a3408087ae766">sincFilterTableUpsample</a> [<a class="el" href="PiedPiperStripped_8ino.html#a366e2fd381c98142cd18d3f91ead2359">sincTableSizeUp</a>]</td></tr>
 <tr class="memdesc:a135a5b2700d254f9273a3408087ae766"><td class="mdescLeft">&#160;</td><td class="mdescRight">stores values of sinc function (sin(x) / x) for upsampling the samples stored in outputSampleBuffer during <a class="el" href="PiedPiperStripped_8ino.html#a57e4ed140620dd3e177cbd7c92660254">Playback()</a> using outputUpsampledSample()  <a href="PiedPiperStripped_8ino.html#a135a5b2700d254f9273a3408087ae766">More...</a><br /></td></tr>
 <tr class="separator:a135a5b2700d254f9273a3408087ae766"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:afdb3c36e809dbd77924104038b458966"><td class="memItemLeft" align="right" valign="top">volatile short&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="PiedPiperStripped_8ino.html#afdb3c36e809dbd77924104038b458966">upsampleFilterInput</a> [<a class="el" href="PiedPiperStripped_8ino.html#a366e2fd381c98142cd18d3f91ead2359">sincTableSizeUp</a>]</td></tr>
-<tr class="memdesc:afdb3c36e809dbd77924104038b458966"><td class="mdescLeft">&#160;</td><td class="mdescRight">sinc filter input buffer for upsampling  <a href="PiedPiperStripped_8ino.html#afdb3c36e809dbd77924104038b458966">More...</a><br /></td></tr>
-<tr class="separator:afdb3c36e809dbd77924104038b458966"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a92daa04e1fdbba3c0d6e3fe18e409fea"><td class="memItemLeft" align="right" valign="top">volatile uint16_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="PiedPiperStripped_8ino.html#a92daa04e1fdbba3c0d6e3fe18e409fea">upsampleFilterInput</a> [<a class="el" href="PiedPiperStripped_8ino.html#a366e2fd381c98142cd18d3f91ead2359">sincTableSizeUp</a>]</td></tr>
+<tr class="memdesc:a92daa04e1fdbba3c0d6e3fe18e409fea"><td class="mdescLeft">&#160;</td><td class="mdescRight">sinc filter input buffer for upsampling  <a href="PiedPiperStripped_8ino.html#a92daa04e1fdbba3c0d6e3fe18e409fea">More...</a><br /></td></tr>
+<tr class="separator:a92daa04e1fdbba3c0d6e3fe18e409fea"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:afed89bc2e0332e0607d2f2e912c93c0a"><td class="memItemLeft" align="right" valign="top">volatile int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="PiedPiperStripped_8ino.html#afed89bc2e0332e0607d2f2e912c93c0a">upsampleInputIdx</a> = 0</td></tr>
 <tr class="memdesc:afed89bc2e0332e0607d2f2e912c93c0a"><td class="mdescLeft">&#160;</td><td class="mdescRight">next position in upsample input buffer  <a href="PiedPiperStripped_8ino.html#afed89bc2e0332e0607d2f2e912c93c0a">More...</a><br /></td></tr>
 <tr class="separator:afed89bc2e0332e0607d2f2e912c93c0a"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -849,7 +849,7 @@ Variables</h2></td></tr>
         </tr>
       </table>
 </div><div class="memdoc">
-<p>open a file in some mode (read, write, etc), using file descriptor "data".</p>
+<p>open a file in some mode (read, write, etc), using file descriptor "data". File is created if mode == FILE_READ</p>
 <dl class="section note"><dt>Note</dt><dd>Does not call SD.begin() or control hypnos rails. Up to user to call prior to using this function. </dd></dl>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
@@ -932,7 +932,7 @@ Variables</h2></td></tr>
       </table>
 </div><div class="memdoc">
 <p>Initialization routine</p>
-<p>Ensures SD, RTC can and are properly initialized. If so, playback sound and operation times are loaded, if a failure is detected fail flash is initiated indefinetely. Otherwise, on success, a setup playback is performed, and device determines whether to go to sleep or perform tasks that are in <a class="el" href="PiedPiperStripped_8ino.html#afe461d27b9c48d5921c00d521181f12f">loop()</a>. </p>
+<p>Ensures SD, RTC can and are properly initialized. If so, playback sound and operation times are loaded based on filenames defined in "settings.txt" on SD card, if a failure is detected, a NeoPixel flashes red indefinetely. Otherwise, on success, NeoPixel flashes green, and setup playback is performed. Finally, device determines whether to go to sleep or perform tasks that are in <a class="el" href="PiedPiperStripped_8ino.html#afe461d27b9c48d5921c00d521181f12f">loop()</a>. </p>
 
 </div>
 </div>
@@ -1028,14 +1028,14 @@ Variables</h2></td></tr>
 
 </div>
 </div>
-<a id="afd79228a708981fbc75ccd3c3ec9342f"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#afd79228a708981fbc75ccd3c3ec9342f">&#9670;&nbsp;</a></span>nextOutputSample</h2>
+<a id="add1e863f6b5a3af87caba0c405d9ef19"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#add1e863f6b5a3af87caba0c405d9ef19">&#9670;&nbsp;</a></span>nextOutputSample</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">volatile short nextOutputSample = 2048</td>
+          <td class="memname">volatile uint16_t nextOutputSample = 2048</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -1076,14 +1076,14 @@ Variables</h2></td></tr>
 
 </div>
 </div>
-<a id="a3e30e679c93b4f551dd5b0d44c1b71c8"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a3e30e679c93b4f551dd5b0d44c1b71c8">&#9670;&nbsp;</a></span>outputSampleBuffer</h2>
+<a id="a2271b2937ee78459753c9a97cfb8e295"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a2271b2937ee78459753c9a97cfb8e295">&#9670;&nbsp;</a></span>outputSampleBuffer</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">short outputSampleBuffer[<a class="el" href="PiedPiperStripped_8ino.html#a451c16a9f8be86b7231bd651b3f1d8a4">AUD_OUT_SAMPLE_FREQ</a> *<a class="el" href="PiedPiperStripped_8ino.html#ae7bb65edc18ea6805461f3ce98621a8b">AUD_OUT_TIME</a>]</td>
+          <td class="memname">uint16_t outputSampleBuffer[<a class="el" href="PiedPiperStripped_8ino.html#a451c16a9f8be86b7231bd651b3f1d8a4">AUD_OUT_SAMPLE_FREQ</a> *<a class="el" href="PiedPiperStripped_8ino.html#ae7bb65edc18ea6805461f3ce98621a8b">AUD_OUT_TIME</a>]</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -1200,7 +1200,7 @@ Variables</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p>Name of file to load settings from such as name of playback file and opeation intervals file. </p>
+<p>Name of file to load settings from such as name of playback and operation intervals filenames. </p>
 
 </div>
 </div>
@@ -1252,14 +1252,14 @@ Variables</h2></td></tr>
 
 </div>
 </div>
-<a id="afdb3c36e809dbd77924104038b458966"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#afdb3c36e809dbd77924104038b458966">&#9670;&nbsp;</a></span>upsampleFilterInput</h2>
+<a id="a92daa04e1fdbba3c0d6e3fe18e409fea"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a92daa04e1fdbba3c0d6e3fe18e409fea">&#9670;&nbsp;</a></span>upsampleFilterInput</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">volatile short upsampleFilterInput[<a class="el" href="PiedPiperStripped_8ino.html#a366e2fd381c98142cd18d3f91ead2359">sincTableSizeUp</a>]</td>
+          <td class="memname">volatile uint16_t upsampleFilterInput[<a class="el" href="PiedPiperStripped_8ino.html#a366e2fd381c98142cd18d3f91ead2359">sincTableSizeUp</a>]</td>
         </tr>
       </table>
 </div><div class="memdoc">
