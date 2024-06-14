@@ -52,7 +52,7 @@
 #define AUD_OUT_TIME 8  ///< maximum length of playback file in seconds
 
 #define SINC_FILTER_UPSAMPLE_RATIO 8 ///< sinc filter upsample ratio, ideally should be a power of 2
-#define SINC_FILTER_ZERO_X 7    ///< sinc filter number of zero crossings, more crossings will produce a cleaner result but will also use more processor time 
+#define SINC_FILTER_ZERO_X 5    ///< sinc filter number of zero crossings, more crossings will produce a cleaner result but will also use more processor time 
 
 #define SD_OPEN_ATTEMPT_COUNT 1  ///< number of times to retry SD.begin()
 #define SD_OPEN_RETRY_DELAY_MS 100  ///< delay between SD.begin() attempts
@@ -157,7 +157,7 @@ void setup() {
   // set LED to yellow upon start of initialization...
   indicator.begin();
   indicator.clear();
-  indicator.show();
+
   // begin Serial, and ensure that our analogWrite() resolution is set to the maximum resolution (2^12 == 4096)
   Serial.begin(2000000);
   analogWriteResolution(12);
@@ -169,10 +169,9 @@ void setup() {
   // configure pin modes
   configurePins();
 
-  // turn on 3VR rail
-
   Serial.println("Initializing SD...");
 
+  // turn on 3VR rail
   digitalWrite(HYPNOS_3VR, LOW);
 
   ResetSPI();
@@ -219,10 +218,10 @@ void setup() {
     digitalWrite(HYPNOS_3VR, HIGH);
     Serial.println("RTC failed to initialize!");
     initializationFailFlash();
-  }
-
+  } else {
   // writes RTC time to SD card to keep track of how long trap has been active (This may be used to adjust RTC time)
   LogAlive();
+  }
 
   // end i2c
   Wire.end();
@@ -318,6 +317,7 @@ void configurePins() {
   pinMode(HYPNOS_3VR, OUTPUT);
   pinMode(SD_CS, OUTPUT);  
   pinMode(AMP_SD, OUTPUT);
+  pinMode(4, INPUT);
 }
 
 /**
@@ -641,7 +641,7 @@ void Playback() {
   digitalWrite(HYPNOS_5VR, HIGH); // enable 5VR
   analogWrite(AUD_OUT, 2048);     // write 2048 to AUD_OUT (3.3V / 2)
   digitalWrite(AMP_SD, HIGH);     // enable amplifier
-  delay(250);                     // short delay for analog low pass filter
+  delay(1000);                     // short delay for analog low pass filter
 
   //Serial.println("Amplifier enabled. Beginning playback ISR...");
 
@@ -815,10 +815,12 @@ void LogAlive() {
 /**
  * Flashes LED to indicate initialization error
  */
-void initializationFailFlash() {  
-  // indicator.begin();
-  indicator.clear();
+void initializationFailFlash() {
+  // reset board after 4096 cycles with WDT  
+  REG_WDT_CONFIG = WDT_CONFIG_PER_CYC4096;
+  REG_WDT_CTRLA = WDT_CTRLA_ENABLE;
 
+  // flash NeoPixel red
   while(1) {
     indicator.setPixelColor(0, 255, 0, 0);
     indicator.show();
@@ -833,9 +835,7 @@ void initializationFailFlash() {
  * Flashes LED green to indicate initialization success
  */
 void initializationSuccessFlash() {
-  // indicator.begin();
-  indicator.clear();
-
+  // flash NeoPixel green
   delay(500);
   indicator.setPixelColor(0, 0, 255, 0);
   indicator.show();
