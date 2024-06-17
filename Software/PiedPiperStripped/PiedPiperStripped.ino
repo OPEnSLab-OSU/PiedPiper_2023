@@ -7,10 +7,11 @@
  * This code is intended for stripped down version of Pied Piper which performs intermittent playbacks based on operation intervals
  * that are stored on the SD card. The code performs in the following manner:
  * 1. In setup(): all necassary data is loaded from the SD card, filenames for playback sound and playback intervals file are loaded
- *    first from the ("settings.txt") file on SD card. Following this, the playback sound (*.PAD) and playback intervals (*.txt) are loaded. 
- *    If all data is successfully loaded from the SD card and RTC is initialized device flashes NeoPixel green to indicate success.
- *    Otherwise, NeoPixel flashes red indefinetely. On success device perfroms a setup playback and the RTC alarm is set to reset the 
- *    device when the alarm goes off based on the following conditions:
+ *    first from the ("settings.txt") file on SD card. Following this, the playback sound (*.PAD) and playback intervals (*.txt) are 
+ *    loaded.  If all data is successfully loaded from the SD card and RTC is initialized device flashes NeoPixel green to indicate 
+ *    success. Otherwise, NeoPixel flashes red and device resets in a in about 2 seconds using WDT. 
+ *    On success device perfroms a setup playback and the RTC alarm is set to reset the device when the alarm goes off based on the 
+ *    following conditions:
  *    - The current time is within the time of a playback interval - the alarm is set to fire at the time corresponding 
  *      to the end of the current playback interval (i.e: if playback interval is between 5:00 and 6:00, the alarm will fire
  *      at 6:00). The device will perform the tasks assigned in loop() until the RTC alarm goes off.
@@ -33,7 +34,7 @@
  * - Add more tasks for device to perform in loop (if requested)
  *
  * @section author Author
- *  - Created by Mykyta (Nick) Synytsia and Vincent Vaughn (May 7, 2024)
+ *  - Created by Mykyta (Nick) Synytsia and Vincent Vaughn (June 16, 2024)
  *
  * Copyright (c) 2024 OSU OPEnSLab. All rights reserved.
  */
@@ -317,7 +318,6 @@ void configurePins() {
   pinMode(HYPNOS_3VR, OUTPUT);
   pinMode(SD_CS, OUTPUT);  
   pinMode(AMP_SD, OUTPUT);
-  pinMode(4, INPUT);
 }
 
 /**
@@ -394,6 +394,7 @@ bool LoadSettings() {
     if (settingName == "playback_filename") {
       strcpy(playback_filename, "/PBAUD/");
       strcat(playback_filename, setting.c_str());
+      
     } else if (settingName == "playback_interval") {
       strcpy(playback_interval, "/PBINT/");
       strcat(playback_interval, setting.c_str());

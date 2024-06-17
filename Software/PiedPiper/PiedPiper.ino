@@ -21,7 +21,8 @@ piedPiper p(startISRTimer, stopISRTimer);
 unsigned long currentTime = 0;
 unsigned long lastTime = 0;
 
-char playback_filename[9] = "BMSB.PAD";
+char playback_filename[10] = "BMSB.PAD";
+char template_filename[10] = "BMSB.txt";
 
 void setup() {
   // Begin serial communication and configure the analog read and write resolutions to their maximum possible values.
@@ -59,7 +60,7 @@ void setup() {
   sprintf(playback_sound_dir, "/PBAUD/%s", playback_filename);
   Serial.printf("Playback filename: %s\n", playback_filename);
   // Verify that the SD card has all the required files and the correct directory structure.
-  if ((SD.exists(playback_sound_dir) && SD.exists("/DATA/DETS/DETS.txt") && SD.exists("/DATA/PHOTO/PHOTO.txt")))
+  if (SD.exists(playback_sound_dir) && SD.exists("/DATA/DETS/DETS.txt") && SD.exists("/DATA/PHOTO/PHOTO.txt"))
   {
     Serial.println("SD card has correct directory structure. Setting photo and detection numbers...");
 
@@ -125,6 +126,7 @@ void setup() {
   }
 
   SD.end();
+
   Wire.begin();
   
   Serial.println("Initializing RTC...");
@@ -155,8 +157,19 @@ void setup() {
   if (USE_DETECTION) { ITimer0.attachInterruptInterval(inputSampleDelayTime, p.RecordSample); }
   else { Serial.println("AUDIO SAMPLING DISABLED"); }
 
+  if (!p.LoadTemplate(template_filename)) {
+    Serial.printf("Failed to load master template: %s", template_filename);
+    Serial.println();
+    initializationFailFlash();
+  }
+
   // Load the prerecorded mating call to play back
-  p.LoadSound(playback_filename);
+  Serial.println("loading sound");
+  if (!p.LoadSound(playback_filename)) {
+    Serial.println("LoadSound() failed.");
+    initializationFailFlash();
+  }
+  Serial.println("setup playback");
   p.Playback();
 
   // Test the camera module by taking 3 test images
@@ -217,11 +230,17 @@ void loop() {
     p.ProcessData();
 
     // Check if the newly recorded audio contains a mating call
-    if (p.InsectDetection())
+    // if (p.InsectDetection())
+
+    // Use cross correlation with master template
+    float correlationCoeff = p.CrossCorrelation();
+    //Serial.println(millis() - currentTime);
+    Serial.println(correlationCoeff);
+    if (correlationCoeff > CORRELATION_THRESH)
     {
+      //Serial.println(correlationCoeff);
       // Continue recording audio for SAVE_DETECTION_DELAY_TIME milliseconds before taking photos and performing playback,
       // to make sure that all (or at least most) of the mating call is captured.
-      
       while (millis() - currentTime < SAVE_DETECTION_DELAY_TIME)
       {
         if (p.InputSampleBufferFull())

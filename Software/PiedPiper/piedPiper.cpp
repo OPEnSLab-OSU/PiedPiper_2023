@@ -210,8 +210,15 @@ void piedPiper::ProcessData()
   FFT.Compute(vReal, vImag, FFT_WIN_SIZE, FFT_FORWARD); // Compute FFT
   FFT.ComplexToMagnitude(vReal, vImag, FFT_WIN_SIZE); // Compute frequency magnitudes
 
+  for (int i = 0; i < FFT_WIN_SIZE_BY2; i++) {
+    vReal[i] *= FREQ_WIDTH;
+  }
+
+  // alpha trimming step...
+  AlphaTrimming(ALPHA_TRIM_WINDOW, ALPHA_TRIM_THRESH);
+
   // store raw frequency magnitudes to rawFreqs
-  for (int i = 0; i < FFT_WIN_SIZE / 2; i++)
+  for (int i = 0; i < FFT_WIN_SIZE_BY2; i++)
   {
     rawFreqs[rawFreqsPtr][i] = vReal[i];
     vReal[i] = 0.0;
@@ -220,53 +227,118 @@ void piedPiper::ProcessData()
   rawFreqsPtr = IterateCircularBufferPtr(rawFreqsPtr, TIME_AVG_WIN_COUNT);
 
   // use vReal as scratch space to store time averaged data of rawFreqs
+  float timeAvgDiv = 1.0 / TIME_AVG_WIN_COUNT;
   for (int t = 0; t < TIME_AVG_WIN_COUNT; t++)
   {
-    for (int f = 0; f < FFT_WIN_SIZE / 2; f++) {
-      vReal[f] += rawFreqs[t][f] / (1.0 * TIME_AVG_WIN_COUNT);
+    for (int f = 0; f < FFT_WIN_SIZE_BY2; f++) {
+      vReal[f] += rawFreqs[t][f] * timeAvgDiv;
     }
   }
 
-  SmoothFreqs(4);
+  SmoothFreqs(FREQ_SMOOTHING);
 
   // store smoothed time-averaged data into freqs
-  for (int f = 0; f < FFT_WIN_SIZE / 2; f++)
+  for (int f = 0; f < FFT_WIN_SIZE_BY2; f++)
   {
     freqs[freqsPtr][f] = round(vReal[f]);
   }
 
-  SmoothFreqs(16);
+  // SmoothFreqs(16);
 
-  // subtract further smoothed data from data in freqs to help remove background noise
-  for (int f = 0; f < FFT_WIN_SIZE / 2; f++)
-  {
-    // instead of subtracting, would it make sense to check if (freqs[freqsPtr][f] < vReal[f] * (some_threshold))
-    // and zero freqs[freqsPtr][f] if true.
-    // Is it possible that freqs[freqPtr][f] can be negative?
-    freqs[freqsPtr][f] = freqs[freqsPtr][f] - round(vReal[f]);
-  }
+  // // subtract further smoothed data from data in freqs to help remove background noise
+  // for (int f = 0; f < FFT_WIN_SIZE_BY2; f++)
+  // {
+  //   // instead of subtracting, would it make sense to check if (freqs[freqsPtr][f] < vReal[f] * (some_threshold))
+  //   // and zero freqs[freqsPtr][f] if true.
+  //   // Is it possible that freqs[freqPtr][f] can be negative?
+  //   freqs[freqsPtr][f] = freqs[freqsPtr][f] - round(vReal[f]);
+  // }
 
   freqsPtr = IterateCircularBufferPtr(freqsPtr, freqWinCount);
+}
+
+// Performs noise subtraction utilizing alpha trimming
+void piedPiper::AlphaTrimming(int winSize, float threshold)
+{
+  float subtractionData[FFT_WIN_SIZE_BY2];
+  for (int i = 0; i < FFT_WIN_SIZE_BY2; i++) {
+    subtractionData[i] = vReal[i];
+  }
+
+  int upperBound = 0;
+  int lowerBound = 0;
+
+  int winSizeBy2 = winSize / 2;
+  for (int i = 0; i < FFT_WIN_SIZE_BY2; i++) {
+    lowerBound = max(0, i - winSizeBy2);
+    upperBound = min(FFT_WIN_SIZE_BY2 - 1, i + winSizeBy2);
+    
+    int boundAvgCount = 0;
+    float boundAvg = 0;
+
+    // get average of magnitudes within lower and upper bound
+    for (int k = lowerBound; k < upperBound + 1; k++) {
+      boundAvg += vReal[k];
+      boundAvgCount += 1;
+    }
+
+    boundAvgCount = boundAvgCount > 0 ? boundAvgCount : 1;
+    boundAvg /= boundAvgCount;
+
+    float boundStdDev = 0;
+    // get standard deviation of magnitudes within lower and upper bound
+    for (int k = lowerBound; k < upperBound + 1; k++) {
+      boundStdDev += pow(vReal[k] - boundAvg, 2);
+    }
+    //Serial.println(boundStdDev)
+
+    // standard deviation 
+    boundStdDev = sqrt(boundStdDev / boundAvgCount);
+
+    // check deviation of samples within lower and upper bound
+    for (int k = lowerBound; k < upperBound + 1; k++) {
+      // if deviation of sample is above threshold
+      if ((vReal[k] - boundAvg) / boundStdDev > threshold) {
+        // replace this sample in subtractionData with the average excluding this sample
+        float trimmedAvg = 0;
+        int trimmedAvgCount = 0;
+        for (int j = lowerBound; j < upperBound + 1; j++) {
+          if (j == k) continue;
+          trimmedAvg += subtractionData[j];
+          trimmedAvgCount += 1;
+        }
+        // ensure to not divide by 0
+        trimmedAvgCount = trimmedAvgCount > 0 ? trimmedAvgCount : 1;
+        subtractionData[k] = trimmedAvg / trimmedAvgCount;
+      } 
+    }
+  }
+
+  // subtraction
+  for (int i = 0; i < FFT_WIN_SIZE_BY2; i++) {
+    vReal[i] -= subtractionData[i];
+    //Serial.println(vReal[i]);
+  }
 }
 
 // Performs rectangular smoothing on frequency data stored in [vReal].
 void piedPiper::SmoothFreqs(int winSize)
 {
-  float inptDup[FFT_WIN_SIZE / 2];
+  float inptDup[FFT_WIN_SIZE_BY2];
   int upperBound = 0;
   int lowerBound = 0;
   int avgCount = 0;
 
-  for (int i = 0; i < (FFT_WIN_SIZE / 2); i++)
+  for (int i = 0; i < (FFT_WIN_SIZE_BY2); i++)
   {
     inptDup[i] = vReal[i];
     vReal[i] = 0;
   }
 
-  for (int i = 0; i < (FFT_WIN_SIZE / 2); i++)
+  for (int i = 0; i < (FFT_WIN_SIZE_BY2); i++)
   {
     lowerBound = max(0, i - winSize / 2);
-    upperBound = min((FFT_WIN_SIZE / 2) - 1, i + winSize / 2);
+    upperBound = min((FFT_WIN_SIZE_BY2) - 1, i + winSize / 2);
     avgCount = 0;
 
     for (int v = lowerBound; v < upperBound + 1; v++)
@@ -288,14 +360,16 @@ void piedPiper::SmoothFreqs(int winSize)
 // Once loaded, the data will remain in-place until LoadTemplate is called again
 bool piedPiper::LoadTemplate(char *fname) {
   // load template from SD card and store into template array, check for errors.
-  StopAudio();
+  // StopAudio();
   ResetSPI();
   digitalWrite(HYPNOS_3VR, LOW);
 
-  char dir[28];
+  char dir[32];
 
-  strcpy(dir, "/TEMPLATES/");
+  strcpy(dir, "/TEMPS/");
   strcat(dir, fname);
+
+  Serial.println(dir);
 
   if (!BeginSD()) {
     //Serial.println("SD failed to initialize.");
@@ -319,14 +393,27 @@ bool piedPiper::LoadTemplate(char *fname) {
     return false;
   }
 
-  //int fsize
+  while(data.available()) {
+    int f = 0;
+    float sample = 0.0;
+    for (int t = 0; t < TEMPLATE_LENGTH; t++) {
+      for (f = 0; f < FFT_WIN_SIZE_BY2; f++) {
+        sample = data.readStringUntil('\n').toFloat();
+        templateData[t][f] = int(round(sample * FREQ_WIDTH));
+        Serial.println(int(round(sample * FREQ_WIDTH)));
+      }
+    }
+  }
 
+  data.close();
+  SD.end();
+  digitalWrite(HYPNOS_3VR, HIGH);
 
   // compute square root of the sum of the template squared
   templateSqrtSumSq = 0;
   long m = 0;
-  for (int t = 0; t < freqWinCount; t++) {
-    for (int f = 0; f < FFT_WIN_SIZE / 2; f++) {
+  for (int t = 0; t < TEMPLATE_LENGTH; t++) {
+    for (int f = FREQ_MARGIN_LOW; f < FREQ_MARGIN_HIGH; f++) {
       m = templateData[t][f];
       templateSqrtSumSq += m * m;
     }
@@ -334,38 +421,47 @@ bool piedPiper::LoadTemplate(char *fname) {
   // store sqaure root of template sum squared
   templateSqrtSumSq = sqrt(templateSqrtSumSq);
 
+  inverseTemplateSqrtSumSq = 1.0 / templateSqrtSumSq;
+
   return true;
 }
 
 // do cross correlation between template and processed frequency data... return correlation coefficient
 float piedPiper::CrossCorrelation() {
-  float freqsSqrtSumSq = 0;
+  long freqsSqrtSumSq = 0;
 
   // compute square root of the sum squared of the current freqs
   long m = 0;
-  for (int t = 0; t < freqWinCount; t++) {
-    for (int f = 0; f < FFT_WIN_SIZE / 2; f++) {
-      m = freqs[t][f];
+
+  // start correlation at latest freqs window (freqsPtr - 1)
+  int currentFreqsPos = freqsPtr == 0 ? freqWinCount - 1 : freqsPtr - 1;
+  
+  int tempT = currentFreqsPos;
+
+  for (int t = 0; t < TEMPLATE_LENGTH; t++) {
+    for (int f = FREQ_MARGIN_LOW; f < FREQ_MARGIN_HIGH; f++) {
+      m = freqs[tempT][f];
       freqsSqrtSumSq += m * m;
     }
+    tempT = IterateCircularBufferPtr(tempT, freqWinCount);
   }
 
   // storing inverse of the product of square root sum squared of template and freqs (done to reduce use of division)
   freqsSqrtSumSq = sqrt(freqsSqrtSumSq) * templateSqrtSumSq;
   // ensuring to not divide by 0
-  freqsSqrtSumSq = freqsSqrtSumSq > 0.0 ? 1.0 / freqsSqrtSumSq : 1.0;
+  float InverseSqrtSumSq = freqsSqrtSumSq > 0 ? 1.0 / freqsSqrtSumSq : 1.0;
 
-  // start correlation at latest freqs window (freqsPtr - 1)
-  int tempT = freqsPtr == 0 ? freqWinCount - 1 : freqsPtr - 1;
-
+  tempT = currentFreqsPos;
   // computing dot product and correlation coefficient
-  float correlationCoefficient = 0;
-  for (int t = 0; t < freqWinCount; t++) {
-    for (int f = 0; f < FFT_WIN_SIZE / 2; f++) {
-      correlationCoefficient += templateData[t][f] * freqs[tempT][f] * freqsSqrtSumSq;
+  float correlationCoefficient = 0.0;
+  for (int t = 0; t < TEMPLATE_LENGTH; t++) {
+    for (int f = FREQ_MARGIN_LOW; f < FREQ_MARGIN_HIGH; f++) {
+      correlationCoefficient += templateData[t][f] * freqs[tempT][f] * InverseSqrtSumSq;
     }
     tempT = IterateCircularBufferPtr(tempT, freqWinCount);
   }
+
+  //Serial.println(correlationCoefficient);
   
   return correlationCoefficient;
 }
@@ -575,7 +671,7 @@ void piedPiper::SaveDetection()
 
   for (int t = 0; t < freqWinCount; t++)
   {
-    for (int f = 0; f < FFT_WIN_SIZE / 2; f++)
+    for (int f = 0; f < FFT_WIN_SIZE_BY2; f++)
     {
       data.print(freqs[freqsPtr][f], DEC);
       data.print(",");
@@ -597,7 +693,7 @@ void piedPiper::SaveDetection()
 
   for (int t = 0; t < freqWinCount; t++)
   {
-    for (int f = 0; f < FFT_WIN_SIZE / 2; f++)
+    for (int f = 0; f < FFT_WIN_SIZE_BY2; f++)
     {
       freqs[t][f] = 0;
     }
@@ -607,7 +703,7 @@ void piedPiper::SaveDetection()
 
   for (int t = 0; t < TIME_AVG_WIN_COUNT; t++)
   {
-    for (int f = 0; f < FFT_WIN_SIZE / 2; f++)
+    for (int f = 0; f < FFT_WIN_SIZE_BY2; f++)
     {
       rawFreqs[t][f] = 0;
     }
