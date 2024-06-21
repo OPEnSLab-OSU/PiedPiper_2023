@@ -28,13 +28,13 @@
 // Detection algorithm settings
 
 // Noise subtraction settings
-#define ALPHA_TRIM_WINDOW 16
-#define ALPHA_TRIM_THRESH 3.25
+#define ALPHA_TRIM_WINDOW 32
+#define ALPHA_TRIM_THRESH 4.0
 
-// Detection with cross correlation and template
-#define CORRELATION_THRESH 0.9 // correlation threshold
+// Detection with cross correlation and template: CrossCorrelation()
+#define CORRELATION_THRESH 0.5 // correlation threshold
 #define TEMPLATE_LENGTH 13 // length of template in number of FFT windows
-#define CORRELATION_FREQ_LOW 60
+#define CORRELATION_FREQ_LOW 50
 #define CORRELATION_FREQ_HIGH 110
 #define TIME_AVG_WIN_COUNT 4 // Number of frequency windows used to average frequencies across time
 #define FREQ_SMOOTHING 4
@@ -62,7 +62,7 @@
 #define AMP_SD 9
 
 #define LOG_INT 3600000 // Miliseconds between status logs [3600000]
-#define PLAYBACK_INT 3600000 // Milliseconds between playback [900000]
+#define PLAYBACK_INT 60000 // Milliseconds between playback [900000]
 
 #define CTRL_IMG_INT 3600000
 #define IMG_TIME 300000
@@ -70,7 +70,7 @@
 
 #define BEGIN_LOG_WAIT_TIME 10000 //3600000
 
-#define SAVE_DETECTION_DELAY_TIME 2000
+#define SAVE_DETECTION_DELAY_TIME 1000
 
 #define DEBUG 1
 
@@ -132,6 +132,12 @@ class piedPiper {
     arduinoFFT FFT = arduinoFFT();  //object for FFT in frequency calcuation
     
     File data;
+
+    char settingsFilename[32] = "settings.txt";
+    char playbackFilename[32] = { 0 };
+    char templateFilename[32] = { 0 };
+    char operationTimesFilename[32] = { 0 };
+
     
     // This must be an integer multiple of the window size:
     static const int sampleCount = REC_TIME * FFT_SAMPLE_FREQ + FFT_WIN_SIZE * TIME_AVG_WIN_COUNT; // [Number of samples required to comprise small + large frequency arrays]
@@ -142,15 +148,15 @@ class piedPiper {
     int samplePtr = 0;
 
     // Time smoothing spectral buffer  (CIRCULAR ALONG TIME)
-    float rawFreqs[TIME_AVG_WIN_COUNT][FFT_WIN_SIZE_BY2];
+    float rawFreqs[TIME_AVG_WIN_COUNT][FFT_WIN_SIZE_BY2] = { 0 };
     int rawFreqsPtr = 0;
 
     // Spectral data (CIRCULAR ALONG TIME)
-    short freqs[freqWinCount][FFT_WIN_SIZE_BY2];
+    short freqs[freqWinCount][FFT_WIN_SIZE_BY2] = { 0 };
     int freqsPtr = 0; // Position of "current" time in buffer (specifically, the time that will be written to next; the data at this location is the oldest)
 
     // template data
-    short templateData[TEMPLATE_LENGTH][FFT_WIN_SIZE_BY2];
+    short templateData[TEMPLATE_LENGTH][FFT_WIN_SIZE_BY2] = { 0 };
     // square root sum squared of template data (updates upon call to LoadTemplate())
     long templateSqrtSumSq = 0;
     float inverseTemplateSqrtSumSq = 1.0;
@@ -166,12 +172,14 @@ class piedPiper {
 
     int detectionNum = 0;
     int photoNum = 0;
+
+    void ConfigurePins(void);
     
     int IterateCircularBufferPtr(int currentVal, int arrSize);
 
-    void StopAudio(void);
+    // void StopAudio(void);
     void StartAudioOutput(void);
-    void StartAudioInput(void);
+    // void StartAudioInput(void);
     
     void AlphaTrimming(int winSize, float threshold);
     void SmoothFreqs(int winSize);
@@ -184,33 +192,54 @@ class piedPiper {
     void(*ISRStopFn)(void);
     void(*ISRStartFn)(const unsigned long interval_us, void(*fnPtr)());
     uint8_t read_fifo_burst(ArduCAM CameraModule);
-    
-  public:
-    piedPiper(void(*audStart)(const unsigned long interval_us, void(*fnPtr)()), void(*audStop)()) ;
 
     static void RecordSample(void);
     static void OutputSample(void);
     static void OutputUpsampledSample(void);
+
+    void calculateDownsampleSincFilterTable(void);
+    void calculateUpsampleSincFilterTable(void);
+
+    bool OpenFile(char *fname, uint8_t mode);
+
+    bool LoadSettings();
+
+    void ReadDetectionNumber(void);
+    void ReadPhotoNum(void);
+
+    
+  public:
+    piedPiper(void(*audStart)(const unsigned long interval_us, void(*fnPtr)()), void(*audStop)()) ;
+
+    void init(void);
     bool InputSampleBufferFull(void);
     void ProcessData(void);
     bool InsectDetection(void);
     float CrossCorrelation(void);
-    void calculateDownsampleSincFilterTable(void);
-    void calculateUpsampleSincFilterTable(void);
     void Playback(void);
     //void LoadSound(void);
     void LogAlive(void);
+    void LogAliveRTC(void);
     bool TakePhoto(int n);
+    bool TakePhotoTTL();
     void SaveDetection(void);
     bool InitializeAudioStream(void);
     bool LoadSound(char *fname);
     bool LoadTemplate(char *fname);
     void ResetOperationIntervals(void);
+    void ResetFrequencyBuffers(void);
+
+    bool initializeRTC(void);
 
     void SetPhotoNum(int n);
     void SetDetectionNum(int n);
 
+    void initializationFailFlash(void);
+
     RTC_DS3231 rtc;
+
+    void StopAudio(void);
+    void StartAudioInput(void);
     
     unsigned long GetLastPlaybackTime(void);
     unsigned long GetLastPhotoTime(void);

@@ -1,4 +1,5 @@
 #include "piedPiper.h"
+#include <String.h>
 
 // Class initialization
 piedPiper::piedPiper(void(*audStart)(const unsigned long interval_us, void(*fnPtr)()), void(*audStop)()) {
@@ -26,6 +27,160 @@ void piedPiper::StartAudioInput()
   //Serial.println("Restarting audio stream");
   if (USE_DETECTION) { (*ISRStartFn)(inputSampleDelayTime, RecordSample); }
 }
+
+void piedPiper::init(void) 
+{
+  // set resolution
+  analogReadResolution(ANALOG_RES);
+  analogWriteResolution(ANALOG_RES);
+
+  Serial.println("Initializing Pied Piper");
+
+  // Configure pins
+  ConfigurePins();
+
+  // Enable the 3 volt rail.
+  digitalWrite(HYPNOS_3VR, LOW);
+
+  Serial.println("Testing SD...");
+
+  delay(1000);
+
+  // Verify that SD can be initialized; stop the program if it can't.
+  if (!BeginSD())
+  {
+    Serial.println("SD failed to initialize.");
+    initializationFailFlash();
+  }
+
+  // read current photo and detection numbers
+  ReadPhotoNum();
+  ReadDetectionNumber();
+
+  // Print out the current photo and detection numbers.
+  Serial.print("Photo number: ");
+  Serial.println(GetPhotoNum());
+  Serial.print("Detection number: ");
+  Serial.println(GetDetectionNum());
+
+  // load settings from SD
+  if (!LoadSettings()) {
+    Serial.println("LoadSettings() failed");
+    initializationFailFlash();
+  }
+
+  // Load master template for correlation
+  if (!LoadTemplate(templateFilename)) {
+    Serial.println("LoadTemplate() failed");
+    initializationFailFlash();
+  }
+
+  // Load the prerecorded mating call to play back
+  if (!LoadSound(playbackFilename)) {
+    Serial.println("LoadSound() failed");
+    initializationFailFlash();
+  }
+
+  SD.end();
+
+  // initialize RTC
+  Wire.begin();
+  if (!initializeRTC()) {
+    Serial.println("initializeRTC() failed");
+    // initializationFailFlash();
+  }
+  Wire.end();
+  // Disable the 3-volt rail.
+  digitalWrite(HYPNOS_3VR, HIGH);
+
+  // calculate sinc filter tables
+  calculateDownsampleSincFilterTable();
+  calculateUpsampleSincFilterTable();
+
+  Serial.println("Performing setup playback...");
+  Playback();
+
+  // Test the camera module by taking 3 test images
+  if (USE_CAMERA_MODULE) {
+    for (int i = 0; i < 3; i++)
+    {
+      if (!TakePhoto(0))
+      {
+        // Stop the program if the camera module failed to take an image
+        Serial.println("Camera module failure!");
+        //initializationFailFlash();
+      }
+      else
+      {
+        Serial.println("Successfully took test photo.");
+      }
+    }
+  } else { Serial.println("CAMERA MODULE DISABLED"); }
+
+  // Wait here for BEGIN_LOG_WAIT_TIME milliseconds (or until the user sends a character over)
+  if (BEGIN_LOG_WAIT_TIME >= 60000) {
+    Serial.printf("Send any character to skip the %d minute delay.\n", int(BEGIN_LOG_WAIT_TIME / 60000));
+  } else { 
+    Serial.printf("Send any character to skip the %d second delay.\n", int(BEGIN_LOG_WAIT_TIME / 1000));
+  }
+
+  long ct = millis();
+  while (millis() - ct < BEGIN_LOG_WAIT_TIME)
+  {
+    if (Serial.available())
+    {
+      while (Serial.available())
+      {
+        Serial.read();
+      }
+      break;
+    }
+  }
+
+  ResetFrequencyBuffers();
+
+  StartAudioInput();
+  if (!USE_DETECTION) {
+    StopAudio();
+    Serial.println("AUDIO SAMPLING DISABLED");
+  }
+}
+
+bool piedPiper::initializeRTC() {
+  // Initialize I2C communication
+  // digitalWrite(HYPNOS_3VR, LOW);
+  // Wire.begin();
+
+  // Initialize RTC
+  if (!rtc.begin()) {
+    return false;
+  }
+
+  // Check if RTC lost power; adjust the clock to the compilation time if it did.
+  // Ideally, the RTC will adjust to the time based on the actual time of day, rather than the compilation time of the sketch
+  // Right here, it may be wise to configure device to just do playbacks every 5 minutes or something...
+  if (rtc.lostPower()) {
+    Serial.println("RTC lost power, check voltage on HYPNOS battery. RTC should be properly adjusted!");
+    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+  }
+
+  // reset rtc alarms
+  rtc.clearAlarm(1);
+  rtc.clearAlarm(2);
+
+  // set RTC !INT/SQR pin to interrupt mode
+  rtc.writeSqwPinMode(DS3231_OFF);
+
+  // disable alarm 2 since we are not using it
+  rtc.disableAlarm(2);
+
+  // RTC initialization done, end wire and turn off 3v rail
+  // Wire.end();
+  // digitalWrite(HYPNOS_3VR, HIGH);
+
+  return true;
+}
+
 
 // This records new audio samples into the sample buffer asyncronously using a hardware timer.
 // Before recording a sample, it first checks if the buffer is full.
@@ -122,67 +277,29 @@ bool piedPiper::InputSampleBufferFull()
 // remain in-place until LoadSound is called again. This means that all future calls to 
 // Playback will play back the same audio data.
 bool piedPiper::LoadSound(char* fname) {
-  StopAudio();
-  ResetSPI();
-  digitalWrite(HYPNOS_3VR, LOW);
-
-  char dir[28];
-
-  strcpy(dir, "/PBAUD/");
-  strcat(dir, fname);
-
-  if (!BeginSD()) {
-    //Serial.println("SD failed to initialize.");
-    digitalWrite(HYPNOS_3VR, HIGH);
-    return false;
-  }
-
   //Serial.println("SD initialized successfully, checking directory...");
 
-  if (!SD.exists(dir)) {
-    //Serial.print("LoadSound failed: directory ");
-    //Serial.print(dir);
-    //Serial.println(" could not be found.");
+  if (!OpenFile(fname, FILE_READ)) {
     digitalWrite(HYPNOS_3VR, HIGH);
-    StartAudioInput();
+    // StartAudioInput();
     return false;
   }
-
-  //Serial.println("Directory found. Opening file...");
-
-  data = SD.open(dir, FILE_READ);
-
-  if (!data) {
-    //Serial.print("LoadSound failed: file ");
-    //Serial.print(dir);
-    //Serial.println(" could not be opened.");
-    digitalWrite(HYPNOS_3VR, HIGH);
-    return false;
-  }
-
   //Serial.println("Opened file. Loading samples...");
 
+  // get size of playback file (in bytes)
   int fsize = data.size();
-  short buff;
 
+  // playback file is exported as 16-bit unsigned int, the total number of samples stored in the file is fsize / 2
   playbackSampleCount = fsize / 2;
-
+  
   for (int i = 0; i < playbackSampleCount; i++) {
-    if ((2 * i) < (fsize - 1)) {
-      data.read((byte*)(&buff), 2);
-      outputSampleBuffer[i] = buff;
-
-    } else {
-      break;
-    }
+    // stop reading at end of file, and ensure 2 bytes are available for reading
+    if ((2 * i) >= (fsize - 1)) break;
+    // read two bytes at a time and store to outputSampleBuffer[i]
+    data.read(&outputSampleBuffer[i], 2);
   }
 
   data.close();
-  SD.end();
-
-  digitalWrite(HYPNOS_3VR, HIGH);
-
-  StartAudioInput();
 
   return true;
 }
@@ -277,7 +394,7 @@ void piedPiper::AlphaTrimming(int winSize, float threshold)
     float boundAvg = 0;
 
     // get average of magnitudes within lower and upper bound
-    for (int k = lowerBound; k < upperBound + 1; k++) {
+    for (int k = lowerBound; k <= upperBound; k++) {
       boundAvg += vReal[k];
       boundAvgCount += 1;
     }
@@ -287,7 +404,7 @@ void piedPiper::AlphaTrimming(int winSize, float threshold)
 
     float boundStdDev = 0;
     // get standard deviation of magnitudes within lower and upper bound
-    for (int k = lowerBound; k < upperBound + 1; k++) {
+    for (int k = lowerBound; k <= upperBound; k++) {
       boundStdDev += pow(vReal[k] - boundAvg, 2);
     }
     //Serial.println(boundStdDev)
@@ -296,15 +413,15 @@ void piedPiper::AlphaTrimming(int winSize, float threshold)
     boundStdDev = sqrt(boundStdDev / boundAvgCount);
 
     // check deviation of samples within lower and upper bound
-    for (int k = lowerBound; k < upperBound + 1; k++) {
+    for (int k = lowerBound; k <= upperBound; k++) {
       // if deviation of sample is above threshold
       if ((vReal[k] - boundAvg) / boundStdDev > threshold) {
         // replace this sample in subtractionData with the average excluding this sample
         float trimmedAvg = 0;
         int trimmedAvgCount = 0;
-        for (int j = lowerBound; j < upperBound + 1; j++) {
+        for (int j = lowerBound; j <= upperBound; j++) {
           if (j == k) continue;
-          trimmedAvg += subtractionData[j];
+          trimmedAvg += vReal[j];
           trimmedAvgCount += 1;
         }
         // ensure to not divide by 0
@@ -328,20 +445,21 @@ void piedPiper::SmoothFreqs(int winSize)
   int upperBound = 0;
   int lowerBound = 0;
   int avgCount = 0;
+  int winSizeBy2 = winSize / 2;
 
-  for (int i = 0; i < (FFT_WIN_SIZE_BY2); i++)
+  for (int i = 0; i < FFT_WIN_SIZE_BY2; i++)
   {
     inptDup[i] = vReal[i];
     vReal[i] = 0;
   }
 
-  for (int i = 0; i < (FFT_WIN_SIZE_BY2); i++)
+  for (int i = 0; i < FFT_WIN_SIZE_BY2; i++)
   {
-    lowerBound = max(0, i - winSize / 2);
-    upperBound = min((FFT_WIN_SIZE_BY2) - 1, i + winSize / 2);
+    lowerBound = max(0, i - winSizeBy2);
+    upperBound = min(FFT_WIN_SIZE_BY2 - 1, i + winSizeBy2);
     avgCount = 0;
 
-    for (int v = lowerBound; v < upperBound + 1; v++)
+    for (int v = lowerBound; v <= upperBound; v++)
     {
       vReal[i] += inptDup[v];
       avgCount++;
@@ -359,37 +477,9 @@ void piedPiper::SmoothFreqs(int winSize)
 // Load template from SD card and store into template array, performs initial computation.
 // Once loaded, the data will remain in-place until LoadTemplate is called again
 bool piedPiper::LoadTemplate(char *fname) {
-  // load template from SD card and store into template array, check for errors.
-  // StopAudio();
-  ResetSPI();
-  digitalWrite(HYPNOS_3VR, LOW);
-
-  char dir[32];
-
-  strcpy(dir, "/TEMPS/");
-  strcat(dir, fname);
-
-  Serial.println(dir);
-
-  if (!BeginSD()) {
-    //Serial.println("SD failed to initialize.");
-    digitalWrite(HYPNOS_3VR, HIGH);
-    return false;
-  }
-
-  //Serial.println("SD initialized successfully, checking directory...");
-
-  if (!SD.exists(dir)) {
-    digitalWrite(HYPNOS_3VR, HIGH);
-    return false;
-  }
-
-  //Serial.println("Directory found. Opening file...");
-
-  data = SD.open(dir, FILE_READ);
-
-  if (!data) {
-    digitalWrite(HYPNOS_3VR, HIGH);
+  // load template from SD card and store into template array
+  if (!OpenFile(fname, FILE_READ)) {
+    // digitalWrite(HYPNOS_3VR, HIGH);
     return false;
   }
 
@@ -400,14 +490,11 @@ bool piedPiper::LoadTemplate(char *fname) {
       for (f = 0; f < FFT_WIN_SIZE_BY2; f++) {
         sample = data.readStringUntil('\n').toFloat();
         templateData[t][f] = int(round(sample * FREQ_WIDTH));
-        Serial.println(int(round(sample * FREQ_WIDTH)));
       }
     }
   }
 
   data.close();
-  SD.end();
-  digitalWrite(HYPNOS_3VR, HIGH);
 
   // compute square root of the sum of the template squared
   templateSqrtSumSq = 0;
@@ -434,7 +521,9 @@ float piedPiper::CrossCorrelation() {
   long m = 0;
 
   // start correlation at latest freqs window (freqsPtr - 1)
-  int currentFreqsPos = freqsPtr == 0 ? freqWinCount - 1 : freqsPtr - 1;
+  //int currentFreqsPos = freqsPtr == 0 ? freqWinCount - 1 : freqsPtr - 1;
+  int currentFreqsPos = (freqsPtr - TEMPLATE_LENGTH + freqWinCount) % freqWinCount;
+  //Serial.println(currentFreqsPos);
   
   int tempT = currentFreqsPos;
 
@@ -555,10 +644,7 @@ bool piedPiper::InsectDetection()
   // Determine if there are target frequency peaks at every window in the frequency data array
   for (int t = 0; t < freqWinCount; t++)
   {
-    if (CheckFreqDomain(t))
-    {
-      count++;
-    }
+    if (CheckFreqDomain(t)) count++;
   }
 
   //Serial.println(count);
@@ -601,7 +687,7 @@ bool piedPiper::CheckFreqDomain(int t)
 // Records detection data to the uSD card, and clears all audio buffers (both sample & frequency data)
 void piedPiper::SaveDetection()
 {
-  StopAudio();
+  // StopAudio();
   ResetSPI();
   digitalWrite(HYPNOS_3VR, LOW);
 
@@ -613,7 +699,7 @@ void piedPiper::SaveDetection()
   if(!BeginSD())
   {
     digitalWrite(HYPNOS_3VR, HIGH);
-    StartAudioInput();
+    // StartAudioInput();
     return;
   }
 
@@ -638,11 +724,11 @@ void piedPiper::SaveDetection()
 
   Wire.end();
 
-  // Creates data file that stores the raw input data responsible for the detection. ==================================================================================================================
+  // Creates data file that stores the raw input data responsible for the detection.
 
   char dir[24] = "/DATA/DETS/";
   char str[10];
-  itoa(detectionNum, str, 9);
+  itoa(detectionNum, str, 10);
   strcat(dir, str);
   strcat(dir, ".txt");
 
@@ -659,11 +745,11 @@ void piedPiper::SaveDetection()
 
   data.close();
 
-  // Creates a detection data file that stores the processed frequency data responsible for the detection. ==================================================================================================================
+  // Creates a detection data file that stores the processed frequency data responsible for the detection.
 
   char dir2[24] = "/DATA/DETS/F";
   char str2[10];
-  itoa(detectionNum, str2, 9);
+  itoa(detectionNum, str2, 10);
   strcat(dir2, str2);
   strcat(dir2, ".txt");
 
@@ -684,13 +770,16 @@ void piedPiper::SaveDetection()
 
   data.close();
 
-  // ===================================================================================================================================
-
   SD.end();
-  SPI.end();
 
   digitalWrite(HYPNOS_3VR, HIGH);
 
+  //Serial.println("Done saving detection");
+}
+
+// reset frequency buffers and audio input
+void piedPiper::ResetFrequencyBuffers()
+{
   for (int t = 0; t < freqWinCount; t++)
   {
     for (int f = 0; f < FFT_WIN_SIZE_BY2; f++)
@@ -699,7 +788,7 @@ void piedPiper::SaveDetection()
     }
   }
 
-  freqsPtr = 0;
+  // freqsPtr = 0;
 
   for (int t = 0; t < TIME_AVG_WIN_COUNT; t++)
   {
@@ -709,10 +798,15 @@ void piedPiper::SaveDetection()
     }
   }
 
-  rawFreqsPtr = 0;
+  // rawFreqsPtr = 0;
 
-  //Serial.println("Done saving detection");
-  StartAudioInput();
+  // reset input buffer index
+  //inputSampleBufferIdx = 0;
+}
+
+bool piedPiper::TakePhotoTTL()
+{
+  return 0;
 }
 
 // Takes a single photo, and records what time and detection it corresponds to
@@ -720,7 +814,7 @@ bool piedPiper::TakePhoto(int n)
 {
   if (USE_CAMERA_MODULE == 0) { return true; }
   
-  StopAudio();
+  // StopAudio();
 
 
   lastImgTime = millis();
@@ -762,7 +856,7 @@ bool piedPiper::TakePhoto(int n)
     digitalWrite(CAM_CS, LOW);
     SPI.end();
     Wire.end();
-    StartAudioInput();
+    // StartAudioInput();
     return false;
   }
   else
@@ -783,7 +877,7 @@ bool piedPiper::TakePhoto(int n)
     digitalWrite(CAM_CS, LOW);
     SPI.end();
     Wire.end();
-    StartAudioInput();
+    // StartAudioInput();
     return false;
   }
   else
@@ -891,7 +985,13 @@ bool piedPiper::TakePhoto(int n)
 
   digitalWrite(CAM_CS, LOW);
 
-  StartAudioInput();
+  for (int i = 0; i < freqWinCount; i++) {
+    for (int f = 0; f < FFT_WIN_SIZE_BY2; f++) {
+      freqs[i][f] = 0;
+    }
+  }
+
+  // StartAudioInput();
   return true;
   
 }
@@ -1006,7 +1106,7 @@ uint8_t piedPiper::read_fifo_burst(ArduCAM CameraModule)
 
 // Plays back a female mating call using the vibration exciter
 void piedPiper::Playback() {
-  StopAudio();
+  // StopAudio();
 
   //Serial.println("Enabling amplifier...");
 
@@ -1015,7 +1115,7 @@ void piedPiper::Playback() {
   digitalWrite(AMP_SD, HIGH);
   delay(100);
 
-  //Serial.println("Amplifier enabled. Beginning playback ISR...");
+  //Serial.println("Amplifier enabled. Beginning playback ...");
 
   StartAudioOutput();
 
@@ -1036,13 +1136,13 @@ void piedPiper::Playback() {
   //Serial.println("Amplifer shut down.");
   lastPlaybackTime = millis();
 
-  StartAudioInput();
+  // StartAudioInput();
 }
 
 // Records the most recent time that the unit is alive.
 void piedPiper::LogAlive()
 {
-  StopAudio();
+  // StopAudio();
   lastLogTime = millis();
   ResetSPI();
   digitalWrite(HYPNOS_3VR, LOW);
@@ -1062,7 +1162,40 @@ void piedPiper::LogAlive()
 
   SD.end();
   digitalWrite(HYPNOS_3VR, HIGH);
-  StartAudioInput();
+  // StartAudioInput();
+}
+
+/**
+ * Log the current time to gauge how long the device has been alive in the field
+ */
+void piedPiper::LogAliveRTC() {
+  ResetSPI();
+  digitalWrite(HYPNOS_3VR, LOW);
+
+  if (!SD.begin(SD_CS)) {
+    digitalWrite(HYPNOS_3VR, HIGH);
+    return;
+  }
+
+  // open file for writing, OpenFile will create LOG.txt if it does not exist
+  if (!OpenFile("LOG.txt", FILE_WRITE)) {
+    return;
+  }
+
+  char date[] = "YYMMDD-hh:mm:ss";
+
+  Wire.begin();
+  rtc.now().toString(date);
+  Wire.end();
+  
+  data.println(date);
+
+  Serial.println(date);
+  
+  data.close();
+
+  SD.end();
+  digitalWrite(HYPNOS_3VR, HIGH);
 }
 
 //+
@@ -1104,6 +1237,17 @@ int piedPiper::GetDetectionNum()
   return detectionNum;
 }
 
+void piedPiper::ConfigurePins()
+{
+  pinMode(AUD_IN, INPUT);
+  pinMode(AUD_OUT, OUTPUT);
+  pinMode(HYPNOS_5VR, OUTPUT);
+  pinMode(HYPNOS_3VR, OUTPUT);
+  pinMode(SD_CS, OUTPUT);
+  pinMode(CAM_CS, OUTPUT);
+  pinMode(AMP_SD, OUTPUT);
+}
+
 void piedPiper::ResetSPI()
 {
   pinMode(23, INPUT);
@@ -1133,6 +1277,99 @@ bool piedPiper::BeginSD()
   return false;
 }
 
+bool piedPiper::OpenFile(char *fname, uint8_t mode) {
+  // check if file exists (also check only if mode == FILE_READ)
+  if (mode == FILE_READ && !SD.exists(fname)) return false;
+
+  // open file in mode
+  data = SD.open(fname, mode);
+
+  // check if file was opened successfully
+  if (!data) return false;
+
+  // return true on success
+  return true;
+}
+
+bool piedPiper::LoadSettings() {
+
+  if (!OpenFile((char *)settingsFilename, FILE_READ)) {
+    digitalWrite(HYPNOS_3VR, HIGH);
+    return false;
+  }
+
+  while (data.available()) {
+    String settingName = data.readStringUntil(':');
+    data.read();
+    String setting = data.readStringUntil('\n');
+    setting.trim();
+
+    // store to corresponding setting on device
+    if (settingName == "playback") {
+      strcpy(playbackFilename, "/PBAUD/");
+      strcat(playbackFilename, setting.c_str());  
+    } else if (settingName == "template") {
+      strcpy(templateFilename, "/TEMPS/");
+      strcat(templateFilename, setting.c_str());
+    } else if (settingName == "operation") {
+      strcpy(operationTimesFilename, "/PBINT/");
+      strcat(operationTimesFilename, setting.c_str());
+    } else continue;
+  }
+
+  data.close();
+
+  return true;
+}
+
+void piedPiper::ReadPhotoNum() {
+  // Set current photo number
+  int pn = 1;
+  char str[10];
+
+  // Count the number of images inside /DATA/PHOTO/
+  while (1)
+  {
+    char dir[32];
+    strcpy(dir, "/DATA/PHOTO/");
+    itoa(pn, str, 10);
+    strcat(dir, str);
+    strcat(dir, ".jpg");
+
+    //Serial.println(dir);
+
+    if (SD.exists(dir)) pn++;
+    else break;
+  }
+
+    // Set the photo number to match the number of photos inside the directory.
+    SetPhotoNum(pn - 1);
+}
+
+void piedPiper::ReadDetectionNumber() {
+  // Set detection number
+  int dn = 1;
+  char str[10];
+
+  // Count the number of detections inside /DATA/DETS/
+  while (1)
+  {
+    char dir[32];
+    strcpy(dir, "/DATA/DETS/");
+    itoa(dn, str, 10);
+    strcat(dir, str);
+    strcat(dir, ".txt");
+
+    if (SD.exists(dir)) dn++;
+    else break;
+  }
+  
+  // Set the detection number to match the number of detections inside the directory.
+  SetDetectionNum(dn - 1);
+}
+
+
+
 void piedPiper::ResetOperationIntervals()
 {
   lastLogTime = 0;
@@ -1154,4 +1391,17 @@ int piedPiper::GetPhotoNum()
 void piedPiper::SetDetectionNum(int n)
 {
   detectionNum = n;
+}
+
+// If something fails to initialize, stop the program and execute this function that repeatedly blinks
+// the camera flash to show that there's a problem.
+void piedPiper::initializationFailFlash()
+{
+  while (1)
+  {
+    digitalWrite(HYPNOS_3VR, LOW);
+    delay(500);
+    digitalWrite(HYPNOS_3VR, HIGH);
+    delay(500);
+  };
 }

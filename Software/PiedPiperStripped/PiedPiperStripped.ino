@@ -114,8 +114,9 @@ volatile int upsampleInputCount = 0;  ///< upsample count, determines whether to
 opTime* operationTimes = NULL; ///< *operationTimes is a dynamically allocated array which stores parsed operation times from PBINT.txt, dynamic memory is used for this because we do not know how many operation times are defined in PBINT.txt during compilation
 int numOperationTimes = 0; ///< the number of elements in operationTimes array
 
-char playback_filename[32]; ///< name of the file used for playback audio, name of file is loaded from SD card
-char playback_interval[32]; ///< name of the file used for loading operation intervals, name of file is loaded from SD card
+char playbackFilename[32]; ///< name of the file used for playback audio (.PAD), name of file is loaded from SD card
+char templateFilename[32]; ///< name of the file to load master template (.txt), name of file is loaded from SD card
+char operationTimesFilename[32]; ///< name of the file used for loading operation intervals (.txt), name of file is loaded from SD card
 
 Adafruit_NeoPixel indicator(1, 8, NEO_GRB + NEO_KHZ800); ///< LED indicator
 
@@ -265,6 +266,7 @@ void setup() {
  */ 
 void loop() {
   Playback();
+  // delay(30000);
   // may add option to add delay between playbacks in the future (will likely be set in PBINT.txt)
 }
 
@@ -382,7 +384,7 @@ bool LoadSettings() {
   if (!OpenFile((char *)settings_filename, FILE_READ)) {
     digitalWrite(HYPNOS_3VR, HIGH);
     return false;
-  }
+  }\
 
   while (data.available()) {
     String settingName = data.readStringUntil(':');
@@ -391,16 +393,16 @@ bool LoadSettings() {
     setting.trim();
 
     // store to corresponding setting on device
-    if (settingName == "playback_filename") {
-      strcpy(playback_filename, "/PBAUD/");
-      strcat(playback_filename, setting.c_str());
-      
-    } else if (settingName == "playback_interval") {
-      strcpy(playback_interval, "/PBINT/");
-      strcat(playback_interval, setting.c_str());
-    } else {
-      continue;
-    }
+    if (settingName == "playback") {
+      strcpy(playbackFilename, "/PBAUD/");
+      strcat(playbackFilename, setting.c_str());  
+    } else if (settingName == "template") {
+      strcpy(templateFilename, "/TEMPS/");
+      strcat(templateFilename, setting.c_str());
+    } else if (settingName == "operation") {
+      strcpy(operationTimesFilename, "/PBINT/");
+      strcat(operationTimesFilename, setting.c_str());
+    } else continue;
   }
 
   data.close();
@@ -426,7 +428,7 @@ bool LoadOperationTimes() {
   //   return false;
   // }
 
-  if (!OpenFile(playback_interval, FILE_READ)) {
+  if (!OpenFile(operationTimesFilename, FILE_READ)) {
     digitalWrite(HYPNOS_3VR, HIGH);
     return false;
   }
@@ -482,7 +484,7 @@ bool LoadSound() {
   //   return false;
   // }
 
-  if (!OpenFile(playback_filename, FILE_READ)) {
+  if (!OpenFile(playbackFilename, FILE_READ)) {
     // digitalWrite(HYPNOS_3VR, HIGH);
     return false;
   }
