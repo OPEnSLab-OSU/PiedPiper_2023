@@ -28,7 +28,7 @@
 
 import os, wave, sys
 
-inFile = 'down2_up2.wav'
+inFile = 'trial26_resampled2.wav'
 
 wfile = wave.open(inFile, 'rb')
 

@@ -51,7 +51,7 @@
 #define SD_OPEN_RETRY_DELAY_MS 100
 
 //Hardware settings & information:
-#define AUD_IN A3
+#define AUD_IN A2
 #define AUD_OUT A0
 
 #define HYPNOS_5VR 6

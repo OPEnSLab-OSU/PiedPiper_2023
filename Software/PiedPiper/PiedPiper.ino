@@ -21,6 +21,8 @@ piedPiper p(startISRTimer, stopISRTimer);
 unsigned long currentTime = 0;
 unsigned long lastTime = 0;
 
+unsigned long windowCount = 0;
+
 void setup() {
   // Begin serial communication
   Serial.begin(2000000);
@@ -52,32 +54,40 @@ void loop() {
     // Check if the newly recorded audio contains a mating call
     // if (p.InsectDetection())
 
-    // Use cross correlation with master template to check if newly recorded audio contains a mating call
-    float correlationCoeff = p.CrossCorrelation();
-    //Serial.println(millis() - currentTime);
-    Serial.println(correlationCoeff);
-    if (correlationCoeff >= CORRELATION_THRESH)
+    if (windowCount < TEMPLATE_LENGTH) 
     {
-      Serial.print("detection occured: ");
+      windowCount += 1;
+    } 
+    else 
+    {
+      // Use cross correlation with master template to check if newly recorded audio contains a mating call
+      float correlationCoeff = p.CrossCorrelation();
+      //Serial.println(millis() - currentTime);
       Serial.println(correlationCoeff);
-      // Continue recording audio for SAVE_DETECTION_DELAY_TIME milliseconds before taking photos and performing playback,
-      // to make sure that all (or at least most) of the mating call is captured.
-      while (millis() - currentTime < SAVE_DETECTION_DELAY_TIME)
+      if (correlationCoeff >= CORRELATION_THRESH)
       {
-        if (p.InputSampleBufferFull())
+        Serial.print("detection occured: ");
+        Serial.println(correlationCoeff);
+        // Continue recording audio for SAVE_DETECTION_DELAY_TIME milliseconds before taking photos and performing playback,
+        // to make sure that all (or at least most) of the mating call is captured.
+        while (millis() - currentTime < SAVE_DETECTION_DELAY_TIME)
         {
-          p.ProcessData();
+          if (p.InputSampleBufferFull())
+          {
+            p.ProcessData();
+          }
         }
+        p.StopAudio();
+        // Save the recorded detection to the SD card, play back an artificial mating call, and take a photo when a detection occurs.
+        p.SaveDetection();
+        p.Playback();
+        p.TakePhoto(p.GetDetectionNum());
+        // writing all this data takes some time so our frequency buffers are extremely out of sync in the time domain
+        // to solve this, reset frequency buffers and continue sampling audio.
+        p.ResetFrequencyBuffers();
+        windowCount = 0;
+        p.StartAudioInput();
       }
-      p.StopAudio();
-      // Save the recorded detection to the SD card, play back an artificial mating call, and take a photo when a detection occurs.
-      p.SaveDetection();
-      p.Playback();
-      p.TakePhoto(p.GetDetectionNum());
-      // writing all this data takes some time so our frequency buffers are extremely out of sync in the time domain
-      // to solve this, reset frequency buffers and continue sampling audio.
-      p.ResetFrequencyBuffers();
-      p.StartAudioInput();
     }
   }
   else
@@ -88,6 +98,7 @@ void loop() {
       p.StopAudio();
       p.Playback();
       p.ResetFrequencyBuffers();
+      windowCount = 0;
       p.StartAudioInput();
     }
 
@@ -97,6 +108,7 @@ void loop() {
       p.StopAudio();
       p.TakePhoto(p.GetDetectionNum());
       p.ResetFrequencyBuffers();
+      windowCount = 0;
       p.StartAudioInput();
     }
 
@@ -106,6 +118,7 @@ void loop() {
       p.StopAudio();
       p.TakePhoto(0);
       p.ResetFrequencyBuffers();
+      windowCount = 0;
       p.StartAudioInput();
     }
 
@@ -115,6 +128,7 @@ void loop() {
       p.StopAudio();
       p.LogAliveRTC();
       p.ResetFrequencyBuffers();
+      windowCount = 0;
       p.StartAudioInput();
       //p.LogAlive();
     }

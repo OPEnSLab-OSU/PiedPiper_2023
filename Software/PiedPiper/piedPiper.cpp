@@ -498,7 +498,7 @@ bool piedPiper::LoadTemplate(char *fname) {
 
   // compute square root of the sum of the template squared
   templateSqrtSumSq = 0;
-  long m = 0;
+  long long m = 0;
   for (int t = 0; t < TEMPLATE_LENGTH; t++) {
     for (int f = FREQ_MARGIN_LOW; f < FREQ_MARGIN_HIGH; f++) {
       m = templateData[t][f];
@@ -515,10 +515,10 @@ bool piedPiper::LoadTemplate(char *fname) {
 
 // do cross correlation between template and processed frequency data... return correlation coefficient
 float piedPiper::CrossCorrelation() {
-  long freqsSqrtSumSq = 0;
+  long long freqsSqrtSumSq = 0;
 
   // compute square root of the sum squared of the current freqs
-  long m = 0;
+  long long m = 0;
 
   // start correlation at latest freqs window (freqsPtr - 1)
   //int currentFreqsPos = freqsPtr == 0 ? freqWinCount - 1 : freqsPtr - 1;
