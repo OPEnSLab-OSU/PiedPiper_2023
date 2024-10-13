@@ -90,7 +90,7 @@ class TTLCamera
 
         bool cameraOn();
         bool cameraOff();
-        bool takePhoto();
+        bool takePhoto(char *filename);
 
 };
 

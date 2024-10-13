@@ -9,7 +9,7 @@ void FFT(float *inputReal, float *inputImag, uint16_t windowSize) {
     fft.ComplexToMagnitude(inputReal, inputImag, windowSize);
 }
 
-template <typename T> void TimeSmoothing(T *input, T *output, uint16_t windowSize, uint16_t smoothingSize) {
+template <typename T> void TimeSmoothing(T *&input, T *output, uint16_t windowSize, uint16_t smoothingSize) {
     
 }
 

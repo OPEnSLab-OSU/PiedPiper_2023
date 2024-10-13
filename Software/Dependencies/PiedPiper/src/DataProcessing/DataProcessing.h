@@ -27,6 +27,8 @@ template <class T> class CircularBuffer
 
         T *getData(int relativeIndex);
 
+        T **getBuffer(void);
+
         void clearBuffer(void);
 
 }
