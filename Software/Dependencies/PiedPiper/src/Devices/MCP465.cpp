@@ -32,7 +32,7 @@ int16_t MCP465::readWiperValue() {
     Wire.beginTransmission(this->i2c_address);
     Wire.write(MCP465_READ_WIPER_CMD);
     if (Wire.endTransmission() > 0) return -1;
-    Wire.requestFrom(MCP465_ADDR, 2);
+    Wire.requestFrom(this->i2c_address, 2);
     uint16_t bitsHigh = 0;
     bitsHigh = Wire.read() << 8;
     return bitsHigh | Wire.read();

@@ -19,7 +19,9 @@ template <class T> class CircularBuffer
         uint16_t numColumns;
 
     public:
-        CircularBuffer(T **bufferPtr, uint16_t numRows, uint16_t numColumns);
+        CircularBuffer(void);
+
+        void setBuffer(T **bufferPtr, uint16_t numRows, uint16_t numColumns)
 
         void pushData(T *data);
 
@@ -43,7 +45,7 @@ template <class T> class CrossCorrelation
         uint16_t numRows;
         uint16_t numColumns;
 
-        float computeTemplate();
+        void computeTemplate();
     
     public:
         CrossCorrelation();

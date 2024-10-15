@@ -59,9 +59,9 @@ class SD
         File data;
         
     public:
-        SD();
+        SD(uint8_t PIN_CS);
 
-        bool initialize(uint8_t PIN_CS);
+        bool initialize(void);
 
         bool begin(void);
 
@@ -70,12 +70,6 @@ class SD
         bool openFile();
 
         void closeFile(void);
-
-        bool loadSound(uint16_t *output);
-
-        bool loadSettings();
-
-        bool loadOperationTimes();
 
 };
 

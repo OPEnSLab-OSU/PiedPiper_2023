@@ -16,6 +16,7 @@
 class PiedPiperBase
 {
     protected:
+
         inline static void Hypnos_3VR_ON(void);
         inline static void Hypnos_3VR_OFF(void);
 
@@ -38,12 +39,21 @@ class PiedPiperBase
         static void initializationFail(void);
         static void initializationSuccess(void);
 
+        static bool loadSound(uint16_t *output);
+
+        static bool loadSettings();
+
+        static bool loadTemplate();
+
+        static bool loadOperationTimes();
+
     private:
 
         static void RecordSample(void);
         static void OutputSample(void);
 
     public:
+    
         PiedPiperBase();
 
         virtual void init(void) = 0;
