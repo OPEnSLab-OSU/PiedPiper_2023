@@ -6,7 +6,7 @@
 void FFT(float *inputReal, float *inputImag, uint16_t windowSize);
 template <typename T> void TimeSmoothing(T *input, T *output, uint16_t windowSize, uint16_t smoothingSize);
 template <typename T> void FrequencySmoothing(T *input, T *output, uint16_t windowSize, uint16_t smoothingSize);
-template <typename T> void AlphaTrimming(T *input, T *output, uint16_t windowSize, uint16_t smoothing, float deviationThreshold);
+template <typename T> void AlphaTrimming(T *input, T *output, uint16_t windowSize, uint16_t smoothingSize, float deviationThreshold);
 
 template <class T> class CircularBuffer
 {
