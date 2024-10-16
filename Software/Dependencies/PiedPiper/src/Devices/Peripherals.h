@@ -1,10 +1,16 @@
 #ifndef PERIPHERALS_h
 #define PERIPHERALS_h
 
-#include <SD.h>
+#include <SPI.h>
 #include <Wire.h>
+#include <SD.h>
+#include <Adafruit_VC0706.h>
 #include "RTClib.h"
 #include "SAMDTimerInterrupt.h"
+
+#define DEFAULT_DS3231_ADDR 0x68
+#define DEFAULT_MCP465_ADDR 0x44
+#define DEFAULT_SHT31_ADDR 0x28
 
 /** sleep modes available on the Feather M4 Express. */
 enum SLEEPMODES
@@ -21,11 +27,13 @@ enum SLEEPMODES
 class TimerInterruptController
 {
     private:
+
         static SAMDTimer ITimer(TIMER_TC3);
         
         static void blankFunction(void);
         
     public:
+
         static void initialize(void);
         static void attachTimerInterrupt(const unsigned long interval_us, void(*fnPtr)());
         static void detachTimerInterrupt(void);
@@ -36,6 +44,7 @@ class WDTController
     private:
 
     public:
+
         WDTController();
         inline void start();
         inline void reset();
@@ -47,8 +56,10 @@ class SleepController
     private:
 
     public:
+
         SleepController();
         inline void goToSleep(SLEEPMODES sleepMode);
+
 };
 
 class SD
@@ -56,9 +67,11 @@ class SD
     private:
 
         uint8_t PIN_CS;
-        File data;
         
     public:
+
+        File data;
+
         SD(uint8_t PIN_CS);
 
         bool initialize(void);
@@ -77,14 +90,17 @@ class TTLCamera
 {
     private:
 
+        Adafruit_VC0706 cam = Adafruit_VC0706(&Serial1)
+
     public:
+
         TTLCamera();
         
         bool initialize(void);
 
         bool cameraOn();
         bool cameraOff();
-        bool takePhoto(char *filename);
+        bool takePhoto(File *file);
 
 };
 
@@ -92,15 +108,18 @@ class TTLCamera
 class RTC
 {
     private:
+
         uint8_t i2c_address;
-        RTC_DS3231 rtc;
 
     public:
-        RTC(uint8_t i2c_address);
 
-        initialize(void);
+        RTC_DS3231 rtc;
 
-        DateTime readDateTime();
+        RTC(uint8_t i2c_address = DEFAULT_DS3231_ADDR);
+
+        bool initialize(void);
+
+        DateTime getDateTime();
 
         bool clearAlarm();
 
@@ -113,10 +132,12 @@ class RTC
 class MCP465
 {
     private:
+
         uint8_t i2c_address;
 
     public:
-        MCP465(uint8_t i2c_address);
+
+        MCP465(uint8_t i2c_address = DEFAULT_MCP465_ADDR);
 
         bool initialize(void);
 
@@ -131,10 +152,12 @@ class MCP465
 class SHT31
 {
     private:
+
         uint8_t i2c_address;
 
     public:
-        SHT31(uint8_t i2c_address);
+
+        SHT31(uint8_t i2c_address = DEFAULT_SHT31_ADDR);
 
         bool initialize(void);
 
@@ -146,9 +169,11 @@ class SHT31
 class PAM8302
 {
     private:
+
         uint8_t PIN_SD;
     
     public:
+
         PAM8302(uint8_t PIN_SD);
 
         inline void powerOn();

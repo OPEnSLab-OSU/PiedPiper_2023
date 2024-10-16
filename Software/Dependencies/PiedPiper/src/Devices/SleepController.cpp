@@ -4,7 +4,7 @@ SleepController::SleepController() {
 
 }
 
-SleepController::goToSleep(SLEEPMODES mode) {
+void SleepController::goToSleep(SLEEPMODES mode) {
     // end USB Serial, probably can be commented out
     USBDevice.detach();
     USBDevice.end();

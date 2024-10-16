@@ -1,9 +1,9 @@
 #include "Peripherals.h"
 
-#define MCP465_INC_WIPER_CMD 0b00000100
-#define MCP465_DEC_WIPER_CMD 0b00001000
-#define MCP465_READ_WIPER_CMD 0b00001100
-#define MCP465_WRITE_WIPER_CMD 0b00000000
+#define MCP465_INC_WIPER_CMD 0x4
+#define MCP465_DEC_WIPER_CMD 0x8
+#define MCP465_READ_WIPER_CMD 0xC
+#define MCP465_WRITE_WIPER_CMD 0x0
 
 MCP465::MCP465(uint8_t i2c_address) {
     this->i2c_address = i2c_address;

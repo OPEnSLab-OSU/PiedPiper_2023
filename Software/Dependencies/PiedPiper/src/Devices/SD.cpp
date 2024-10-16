@@ -21,5 +21,5 @@ bool SD::openFile() {
 }
 
 void SD::closeFile() {
-    
+
 }
