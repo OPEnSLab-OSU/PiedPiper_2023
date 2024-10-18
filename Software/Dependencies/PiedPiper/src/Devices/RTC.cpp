@@ -16,8 +16,10 @@ bool RTC::initialize() {
     this->rtc.clearAlarm(1);
     this->rtc.clearAlarm(2);
 
+    // configure to use alarm
     this->rtc.writeSqwPinMode(DS3231_OFF);
 
+    // disable alarm 2 since we aren't using it
     this->rtc.disableAlarm(2);
 
     return true;
@@ -28,13 +30,30 @@ DateTime RTC::getDateTime() {
 }
 
 bool RTC::clearAlarm() {
-    
+    rtc.clearAlarm(1);
 }
 
-bool RTC::setAlarm() {
+bool RTC::setAlarm(DateTime alarmDateTime) {
+    if (rtc.setAlarm1(
+        alarmDateTime,
+        DS3231_A1_Hour // this mode triggers the alarm when the hours, minutes and seconds match
+    )) {
+        return true;
+    }
 
+    return false;
 }
 
-bool RTC::setAlarmSeconds() {
+bool RTC::setAlarmSeconds(int32_t seconds) {
+    DateTime nowDT = this->getDateTime();
 
+    if (rtc.setAlarm1(
+        // TimeSpan() accepts seconds as argument. Subtracting the current seconds isn't necassary, but helps to ensure that alarm goes of exactly at the minute mark 
+        nowDT + TimeSpan(seconds - nowDT.second()),
+        DS3231_A1_Hour // this mode triggers the alarm when the hours, minutes and seconds match
+    )) {
+        return true;
+    }
+
+    return false;
 }

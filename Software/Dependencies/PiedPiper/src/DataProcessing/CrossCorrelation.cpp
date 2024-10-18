@@ -1,3 +1,5 @@
+#include "DataProcessing.h"
+
 template <class T> class CrossCorrelation::CrossCorrelation() {
     this->templatePtr = NULL;
 
@@ -10,7 +12,8 @@ void CrossCorrelation::computeTemplate() {
     this->templateSumSquared = 0;
 }
 
-void CrossCorrelation::setTemplate(T **input, uint16_t numRows, uint16_t numCols) {
+
+void CrossCorrelation::setTemplate(T *input, uint16_t numRows, uint16_t numCols) {
     this->templatePtr = input;
     this->numRows = numRows;
     this->numCols = numCols;

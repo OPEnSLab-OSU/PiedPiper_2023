@@ -30,7 +30,10 @@ class PiedPiperBase
         static WDTController WDT;
 
         static volatile uint16_t AUD_IN_BUFFER[WINDOW_SIZE];
+        static volatile uint16_t inputSampleBufferIdx = 0;
+
         static uint16_t PLAYBACK_FILE[SAMPLE_RATE * PLAYBACK_FILE_LENGTH];
+        static volatile uint16_t outputSampleBufferIdx = 0;
 
         static void startAudioInput(void);
         static void stopAudio(void);
@@ -39,13 +42,13 @@ class PiedPiperBase
         static void initializationFail(void);
         static void initializationSuccess(void);
 
-        static bool loadSound(uint16_t *output);
+        static bool loadSound(char *filename, uint16_t *output);
 
-        static bool loadSettings();
+        static bool loadSettings(char *filename);
 
-        static bool loadTemplate();
+        static bool loadTemplate(char *filename);
 
-        static bool loadOperationTimes();
+        static bool loadOperationTimes(char *filename);
 
     private:
 

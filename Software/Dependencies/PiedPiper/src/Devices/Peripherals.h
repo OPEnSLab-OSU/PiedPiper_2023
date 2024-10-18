@@ -119,13 +119,14 @@ class RTC
 
         bool initialize(void);
 
-        DateTime getDateTime();
+        DateTime getDateTime(void);
 
-        bool clearAlarm();
+        bool clearAlarm(void);
 
-        bool setAlarm();
+        bool setAlarm(DateTime alarmDateTime);
 
-        bool setAlarmSeconds();
+        
+        bool setAlarmSeconds(int32_t seconds);
 
 };
 
