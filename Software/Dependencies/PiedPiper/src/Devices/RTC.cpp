@@ -1,10 +1,10 @@
 #include "Peripherals.h"
 
-RTC::RTC(uint8_t i2c_address) {
+RTCWrapper::RTCWrapper(uint8_t i2c_address) {
     this->i2c_address = i2c_address;
 }
 
-bool RTC::initialize() {
+bool RTCWrapper::initialize() {
     if (!this->rtc.begin()) return false;
 
     if (!this->rtc.lostPower()) {
@@ -25,15 +25,15 @@ bool RTC::initialize() {
     return true;
 }
 
-DateTime RTC::getDateTime() {
+DateTime RTCWrapper::getDateTime() {
     return this->rtc.now();
 }
 
-bool RTC::clearAlarm() {
+bool RTCWrapper::clearAlarm() {
     rtc.clearAlarm(1);
 }
 
-bool RTC::setAlarm(DateTime alarmDateTime) {
+bool RTCWrapper::setAlarm(DateTime alarmDateTime) {
     if (rtc.setAlarm1(
         alarmDateTime,
         DS3231_A1_Hour // this mode triggers the alarm when the hours, minutes and seconds match
@@ -44,7 +44,7 @@ bool RTC::setAlarm(DateTime alarmDateTime) {
     return false;
 }
 
-bool RTC::setAlarmSeconds(int32_t seconds) {
+bool RTCWrapper::setAlarmSeconds(int32_t seconds) {
     DateTime nowDT = this->getDateTime();
 
     if (rtc.setAlarm1(

@@ -8,6 +8,19 @@
 #include "PiedPiperSettings.h"
 #include "Peripherals.h"
 
+const uint16_t ADC_MAX = (1 << ADC_RESOLUTION) - 1;
+const uint16_t DAC_MAX = (1 << DAC_RESOLUTION) - 1;
+
+const uint16_t ADC_MID = 1 << (ADC_RESOLUTION - 1);
+const uint16_t DAC_MID = 1 << (DAC_RESOLUTION - 1);
+
+const uint16_t FFT_WINDOW_SIZE = WINDOW_SIZE / AUD_IN_DOWNSAMPLE_RATIO;
+const uint16_t FFT_SAMPLE_RATE = SAMPLE_RATE / AUD_IN_DOWNSAMPLE_RATIO;
+const uint16_t AUD_OUT_SAMPLE_RATE = SAMPLE_RATE * AUD_OUT_UPSAMPLE_RATIO;
+
+const uint16_t AUD_IN_SAMPLE_DELAY_TIME = 1000000 / SAMPLE_RATE;
+const uint16_t AUD_OUT_SAMPLE_DELAY_TIME = 1000000 / AUD_OUT_SAMPLE_RATE;
+
 /*
     Pied Piper Base is the base class of Pied Piper Monitor and Playback. This class contains functions and data structures which are 
     relevant to all child classes, such as loading and writing data to and SD card, initializing timer interrupt for sampling
@@ -29,11 +42,9 @@ class PiedPiperBase
         static SleepController SleepController;
         static WDTController WDT;
 
-        static volatile uint16_t AUD_IN_BUFFER[WINDOW_SIZE];
-        static volatile uint16_t inputSampleBufferIdx = 0;
+        SDWrapper SDCard = SDWrapper();
 
-        static uint16_t PLAYBACK_FILE[SAMPLE_RATE * PLAYBACK_FILE_LENGTH];
-        static volatile uint16_t outputSampleBufferIdx = 0;
+        RTCWrapper RTC = RTCWrapper(DEFAULT_DS3231_ADDR);
 
         static void startAudioInput(void);
         static void stopAudio(void);
@@ -42,15 +53,24 @@ class PiedPiperBase
         static void initializationFail(void);
         static void initializationSuccess(void);
 
-        static bool loadSound(char *filename, uint16_t *output);
-
         static bool loadSettings(char *filename);
+
+        static bool loadSound(char *filename, uint16_t *output);
 
         static bool loadTemplate(char *filename);
 
         static bool loadOperationTimes(char *filename);
 
+        static bool audioInputBufferFull(float *fftBufferPtr);
+
     private:
+
+        static uint16_t PLAYBACK_FILE_SAMPLE_COUNT;
+
+        static void configurePins(void);
+        
+        static void calculateDownsampleSincFilterTable(void);
+        static void calculateUpsampleSincFilterTable(void);
 
         static void RecordSample(void);
         static void OutputSample(void);
@@ -75,17 +95,14 @@ class PiedPiperBase
 class PiedPiperMonitor : PiedPiperBase
 {
     private:
-        SD sd();
 
-        RTC rtc();
+        SHT31 tempSensor = SHT31(DEFAULT_SHT31_ADDR);
 
-        SHT31 tempSensor();
+        MCP465 preAmp = MCP465(DEFAULT_MCP465_ADDR);
 
-        MCP465 preAmplifier();
+        TTLCamera camera = TTLCamera();
 
-        TTLCamera camera();
-
-        PAM8302 amplifier();
+        PAM8302 amp = PAM8302(PIN_AMP_SD);
 
     public:
         PiedPiperMonitor();
@@ -103,11 +120,8 @@ class PiedPiperMonitor : PiedPiperBase
 class PiedPiperPlayback : PiedPiperBase
 {
     private:
-        SD sd();
 
-        RTC rtc();
-
-        PAM8302 amplifier();
+        PAM8302 amp = PAM8302(PIN_AMP_SD);
 
     public:
         PiedPiperPlayback();

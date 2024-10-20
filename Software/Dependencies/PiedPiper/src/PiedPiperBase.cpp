@@ -16,26 +16,6 @@ void PiedPiperBase::Hypnos_5VR_OFF() {
     digitalWrite(PIN_HYPNOS_5VR, LOW);
 }
 
-void PiedPiperBase::startAudioInput() {
-    this->TimerInterrupt.attachTimerInterrupt(sampleDelayTime, this->RecordSample);
-}
-
-void PiedPiperBase::stopAudio() {
-    this->TimerInterrupt.detachTimerInterrupt();
-}
-
-void PiedPiperBase::performPlayback() {
-
-}
-
-void PiedPiperBase::RecordSample() {
-
-}
-
-void PiedPiperBase::OutputSample() {
-
-}
-
 void PiedPiperBase::initializationFail() {
     this->indicator.begin();
     this->indicator.clear();

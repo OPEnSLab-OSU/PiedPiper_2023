@@ -54,20 +54,12 @@ template <typename T> void FrequencySmoothing(T *input, T *output, uint16_t wind
  */
 template <typename T> void AlphaTrimming(T *input, T *output, uint16_t windowSize, uint16_t smoothingSize, float deviationThreshold);
 
-/*
- *
- *
- * 
- */
-void CalculateDownsampleSincFilter(void);
 
 /*
  *
  *
  * 
  */
-void CalculateUpsampleSincFilter(void);
-
 template <class T> class CircularBuffer
 {
     private:
@@ -81,7 +73,7 @@ template <class T> class CircularBuffer
     public:
         CircularBuffer(void);
 
-        void setBuffer(T **bufferPtr, uint16_t numRows, uint16_t numColumns)
+        void setBuffer(T *bufferPtr, uint16_t numRows, uint16_t numColumns)
 
         void pushData(T *data);
 
@@ -95,24 +87,34 @@ template <class T> class CircularBuffer
 
 }
 
-template <class T> class CrossCorrelation
+/*
+ *
+ *
+ * 
+ */
+class CrossCorrelation
 {
     private:
-        T **templatePtr;
+        uint16_t *templatePtr;
 
-        float templateSumSquared;
+        uint32_t templateSqrtSumSq;
 
         uint16_t numRows;
         uint16_t numColumns;
 
-        void computeTemplate();
+        uint16_t sampleRate;
+        uint16_t windowSize;
+        uint16_t frequencyIndexLow;
+        uint16_t frequencyIndexHigh;
+
+        void computeTemplate(void);
     
     public:
-        CrossCorrelation();
+        CrossCorrelation(uint16_t sampleRate, uint16_t windowSize);
 
-        void setTemplate(T **input, uint16_t numRows, uint16_t numColumns);
+        void setTemplate(uint16_t *input, uint16_t numRows, uint16_t numCols, uint16_t frequencyRangeLow, uint16_t frequencyRangeHigh);
 
-        float correlate(T **input);
+        float correlate(uint16_t *inputPtr, uint16_t inputStartWindowIndex, uint16_t inputTotalWindows = this->numCols);
 };
 
 #endif

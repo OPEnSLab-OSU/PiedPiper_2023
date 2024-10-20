@@ -1,24 +1,24 @@
 #include "Peripherals"
 
-SD::SD(uint8_t PIN_CS) {
+SDWrapper::SD(uint8_t PIN_CS) {
     this->PIN_CS = PIN_CS;
 }
 
-bool SD::initialize(void) {
+bool SDWrapper::initialize(void) {
     bool _returnVal = SD.begin(this->PIN_CS);
     SD.end();
     return _returnVal;
 }
 
-bool SD::begin(void) {
+bool SDWrapper::begin(void) {
     return SD.begin(this->PIN_CS);
 }
 
-void SD::end(void) {
+void SDWrapper::end(void) {
     SD.end();
 }
 
-bool SD::openFile(char *fname, uint8_t mode) {
+bool SDWrapper::openFile(char *fname, uint8_t mode) {
     if (mode == FILE_READ && !SD.exists(fname)) return false;
 
     // open file in mode
@@ -34,6 +34,6 @@ bool SD::openFile(char *fname, uint8_t mode) {
     return true;
 }
 
-void SD::closeFile() {
+void SDWrapper::closeFile() {
     this->data.close();
 }

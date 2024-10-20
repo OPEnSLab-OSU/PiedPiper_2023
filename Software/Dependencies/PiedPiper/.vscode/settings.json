@@ -6,6 +6,9 @@
         "limits": "cpp",
         "random": "cpp",
         "utility": "cpp",
-        "xutility": "cpp"
+        "xutility": "cpp",
+        "compare": "cpp",
+        "cmath": "cpp",
+        "complex": "cpp"
     }
 }

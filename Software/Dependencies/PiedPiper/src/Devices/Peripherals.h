@@ -4,13 +4,9 @@
 #include <SPI.h>
 #include <Wire.h>
 #include <SD.h>
-#include <Adafruit_VC0706.h>
 #include "RTClib.h"
 #include "SAMDTimerInterrupt.h"
-
-#define DEFAULT_DS3231_ADDR 0x68
-#define DEFAULT_MCP465_ADDR 0x44
-#define DEFAULT_SHT31_ADDR 0x28
+#include <Adafruit_VC0706.h>
 
 /** sleep modes available on the Feather M4 Express. */
 enum SLEEPMODES
@@ -62,7 +58,7 @@ class SleepController
 
 };
 
-class SD
+class SDWrapper
 {
     private:
 
@@ -72,7 +68,7 @@ class SD
 
         File data;
 
-        SD(uint8_t PIN_CS);
+        SDWrapper(uint8_t PIN_CS);
 
         bool initialize(void);
 
@@ -105,7 +101,7 @@ class TTLCamera
 };
 
 
-class RTC
+class RTCWrapper
 {
     private:
 
@@ -115,7 +111,7 @@ class RTC
 
         RTC_DS3231 rtc;
 
-        RTC(uint8_t i2c_address = DEFAULT_DS3231_ADDR);
+        RTCWrapper(uint8_t i2c_address);
 
         bool initialize(void);
 
@@ -138,7 +134,7 @@ class MCP465
 
     public:
 
-        MCP465(uint8_t i2c_address = DEFAULT_MCP465_ADDR);
+        MCP465(uint8_t i2c_address);
 
         bool initialize(void);
 
@@ -158,7 +154,7 @@ class SHT31
 
     public:
 
-        SHT31(uint8_t i2c_address = DEFAULT_SHT31_ADDR);
+        SHT31(uint8_t i2c_address);
 
         bool initialize(void);
 
