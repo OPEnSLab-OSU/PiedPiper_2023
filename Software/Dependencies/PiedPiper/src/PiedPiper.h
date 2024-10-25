@@ -7,6 +7,7 @@
 #include <Adafruit_NeoPixel.h>
 #include "PiedPiperSettings.h"
 #include "Peripherals.h"
+#include "OperationManager.h"
 
 const uint16_t ADC_MAX = (1 << ADC_RESOLUTION) - 1;
 const uint16_t DAC_MAX = (1 << DAC_RESOLUTION) - 1;
@@ -15,6 +16,7 @@ const uint16_t ADC_MID = 1 << (ADC_RESOLUTION - 1);
 const uint16_t DAC_MID = 1 << (DAC_RESOLUTION - 1);
 
 const uint16_t FFT_WINDOW_SIZE = WINDOW_SIZE / AUD_IN_DOWNSAMPLE_RATIO;
+const uint16_t FFT_WINDOW_SIZE_BY2 = FFT_WINDOW_SIZE >> 1;
 const uint16_t FFT_SAMPLE_RATE = SAMPLE_RATE / AUD_IN_DOWNSAMPLE_RATIO;
 const uint16_t AUD_OUT_SAMPLE_RATE = SAMPLE_RATE * AUD_OUT_UPSAMPLE_RATIO;
 
@@ -30,21 +32,26 @@ class PiedPiperBase
 {
     protected:
 
-        inline static void Hypnos_3VR_ON(void);
-        inline static void Hypnos_3VR_OFF(void);
-
-        inline static void Hypnos_5VR_ON(void);
-        inline static void Hypnos_3VR_OFF(void);
-
         static Adafruit_NeoPixel indicator(1, 8, NEO_GRB + NEO_KHZ800);
 
         static TimerInterruptController TimerInterrupt;
         static SleepController SleepController;
         static WDTController WDT;
+        static OperationManager operationManager;
 
         SDWrapper SDCard = SDWrapper();
 
         RTCWrapper RTC = RTCWrapper(DEFAULT_DS3231_ADDR);
+
+        static char playbackFilename[32];
+        static char templateFilename[32];
+        static char operationTimesFilename[32];
+
+        inline static void Hypnos_3VR_ON(void);
+        inline static void Hypnos_3VR_OFF(void);
+
+        inline static void Hypnos_5VR_ON(void);
+        inline static void Hypnos_5VR_OFF(void);
 
         static void startAudioInput(void);
         static void stopAudio(void);
@@ -55,15 +62,17 @@ class PiedPiperBase
 
         static bool loadSettings(char *filename);
 
-        static bool loadSound(char *filename, uint16_t *output);
+        static bool loadSound(char *filename);
 
-        static bool loadTemplate(char *filename);
+        static bool loadTemplate(char *filename, uint16_t *bufferPtr, uint16_t templateLength);
 
         static bool loadOperationTimes(char *filename);
 
-        static bool audioInputBufferFull(float *fftBufferPtr);
+        static bool audioInputBufferFull(float *bufferPtr);
 
     private:
+
+        static uint16_t PLAYBACK_FILE[SAMPLE_RATE * PLAYBACK_FILE_LENGTH];
 
         static uint16_t PLAYBACK_FILE_SAMPLE_COUNT;
 
@@ -96,7 +105,7 @@ class PiedPiperMonitor : PiedPiperBase
 {
     private:
 
-        SHT31 tempSensor = SHT31(DEFAULT_SHT31_ADDR);
+        DFRobot_SHT3x tempSensor = DFRobot_SHT3x();
 
         MCP465 preAmp = MCP465(DEFAULT_MCP465_ADDR);
 

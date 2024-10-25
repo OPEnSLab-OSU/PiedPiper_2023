@@ -3,10 +3,11 @@
 // audio input buffer
 volatile uint16_t AUD_IN_BUFFER[FFT_WINDOW_SIZE];
 volatile uint16_t AUD_IN_BUFFER_IDX = 0;
+
 uint16_t PiedPiperBase::PLAYBACK_FILE_SAMPLE_COUNT = 0;
 
 // audio output buffer
-uint16_t PLAYBACK_FILE[SAMPLE_RATE * PLAYBACK_FILE_LENGTH];
+uint16_t PiedPiperBase::PLAYBACK_FILE[SAMPLE_RATE * PLAYBACK_FILE_LENGTH];
 volatile uint16_t PLAYBACK_FILE_BUFFER_IDX = 0;
 
 // calculating sinc table sizes
@@ -158,10 +159,10 @@ void PiedPiperBase::OutputSample(void) {
     nextOutputSample = max(0, min(DAC_MAX, int(round(filteredValue))));
 }
 
-bool PiedPiperBase::audioInputBufferFull(float fftBufferPtr) {
+bool PiedPiperBase::audioInputBufferFull(float *bufferPtr) {
     if !(AUD_IN_BUFFER_IDX < FFT_WINDOW_SIZE) {
         for (int i = 0; i < FFT_WINDOW_SIZE i++) {
-            fftBufferPtr[i] = AUD_IN_BUFFER[i];
+            bufferPtr[i] = AUD_IN_BUFFER[i];
         }
         return true;
     }

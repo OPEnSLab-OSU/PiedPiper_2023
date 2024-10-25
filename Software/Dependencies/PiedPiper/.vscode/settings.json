@@ -9,6 +9,8 @@
         "xutility": "cpp",
         "compare": "cpp",
         "cmath": "cpp",
-        "complex": "cpp"
+        "complex": "cpp",
+        "istream": "cpp",
+        "*.tcc": "cpp"
     }
 }

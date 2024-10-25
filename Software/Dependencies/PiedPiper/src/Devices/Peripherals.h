@@ -7,24 +7,13 @@
 #include "RTClib.h"
 #include "SAMDTimerInterrupt.h"
 #include <Adafruit_VC0706.h>
-
-/** sleep modes available on the Feather M4 Express. */
-enum SLEEPMODES
-{
-    IDLE0 = 0x0,      ///< IDLE0
-    IDLE1 = 0x1,      ///< IDLE1
-    IDLE2 = 0x2,      ///< IDLE2
-    STANDBY = 0x4,    ///< STANDBY sleep mode can exited with a interrupt (this sleep mode is good, but draws ~20mA by default)
-    HIBERNATE = 0x5,  ///< HIBERNATE sleep mode can only be exited with a device reset
-    BACKUP = 0x6,     ///< BACKUP sleep mode can only be exited with a device reset
-    OFF = 0x7         ///< OFF sleep mode can only be exited with a device reset (best sleep mode to use for least power consumption)
-};
+#include <DFRobot_SHT3x.h>
 
 class TimerInterruptController
 {
     private:
 
-        static SAMDTimer ITimer(TIMER_TC3);
+        // static SAMDTimer ITimer(TIMER_TC3);
         
         static void blankFunction(void);
         
@@ -52,6 +41,18 @@ class SleepController
     private:
 
     public:
+
+        /** sleep modes available on the Feather M4 Express. */
+        enum SLEEPMODES
+        {
+            IDLE0 = 0x0,      ///< IDLE0
+            IDLE1 = 0x1,      ///< IDLE1
+            IDLE2 = 0x2,      ///< IDLE2
+            STANDBY = 0x4,    ///< STANDBY sleep mode can exited with a interrupt (this sleep mode is good, but draws ~20mA by default)
+            HIBERNATE = 0x5,  ///< HIBERNATE sleep mode can only be exited with a device reset
+            BACKUP = 0x6,     ///< BACKUP sleep mode can only be exited with a device reset
+            OFF = 0x7         ///< OFF sleep mode can only be exited with a device reset (best sleep mode to use for least power consumption)
+        };
 
         SleepController();
         inline void goToSleep(SLEEPMODES sleepMode);
@@ -109,9 +110,9 @@ class RTCWrapper
 
     public:
 
-        RTC_DS3231 rtc;
-
         RTCWrapper(uint8_t i2c_address);
+
+        RTC_DS3231 rtc;
 
         bool initialize(void);
 
@@ -146,22 +147,22 @@ class MCP465
 
 };
 
-class SHT31
-{
-    private:
+// class SHT31
+// {
+//     private:
 
-        uint8_t i2c_address;
+//         uint8_t i2c_address;
 
-    public:
+//     public:
 
-        SHT31(uint8_t i2c_address);
+//         SHT31(uint8_t i2c_address);
 
-        bool initialize(void);
+//         bool initialize(void);
 
-        float readTemperature();
-        float readHumidity();
+//         float readTemperature();
+//         float readHumidity();
 
-};
+// };
 
 class PAM8302
 {
