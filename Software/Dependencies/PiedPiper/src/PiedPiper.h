@@ -32,6 +32,28 @@ class PiedPiperBase
 {
     protected:
 
+        static char playbackFilename[32];
+        static char templateFilename[32];
+        static char operationTimesFilename[32];
+
+    private:
+
+        static uint16_t PLAYBACK_FILE[SAMPLE_RATE * PLAYBACK_FILE_LENGTH];
+
+        static uint16_t PLAYBACK_FILE_SAMPLE_COUNT;
+
+        static void configurePins(void);
+        
+        static void calculateDownsampleSincFilterTable(void);
+        static void calculateUpsampleSincFilterTable(void);
+
+        static void RecordSample(void);
+        static void OutputSample(void);
+
+    public:
+    
+        PiedPiperBase() = 0;
+
         static Adafruit_NeoPixel indicator(1, 8, NEO_GRB + NEO_KHZ800);
 
         static TimerInterruptController TimerInterrupt;
@@ -42,10 +64,6 @@ class PiedPiperBase
         SDWrapper SDCard = SDWrapper();
 
         RTCWrapper RTC = RTCWrapper(DEFAULT_DS3231_ADDR);
-
-        static char playbackFilename[32];
-        static char templateFilename[32];
-        static char operationTimesFilename[32];
 
         inline static void Hypnos_3VR_ON(void);
         inline static void Hypnos_3VR_OFF(void);
@@ -69,28 +87,6 @@ class PiedPiperBase
         static bool loadOperationTimes(char *filename);
 
         static bool audioInputBufferFull(float *bufferPtr);
-
-    private:
-
-        static uint16_t PLAYBACK_FILE[SAMPLE_RATE * PLAYBACK_FILE_LENGTH];
-
-        static uint16_t PLAYBACK_FILE_SAMPLE_COUNT;
-
-        static void configurePins(void);
-        
-        static void calculateDownsampleSincFilterTable(void);
-        static void calculateUpsampleSincFilterTable(void);
-
-        static void RecordSample(void);
-        static void OutputSample(void);
-
-    public:
-    
-        PiedPiperBase();
-
-        virtual void init(void) = 0;
-
-        virtual void update(void) = 0;
 };
 
 /* 
@@ -101,7 +97,7 @@ class PiedPiperBase
        and date/time
      - Perform playback intermittently and/or in response to a detection
 */
-class PiedPiperMonitor : PiedPiperBase
+class PiedPiperMonitor : public PiedPiperBase
 {
     private:
 
@@ -116,17 +112,13 @@ class PiedPiperMonitor : PiedPiperBase
     public:
         PiedPiperMonitor();
 
-        void init(void);
-
-        void update(void);
-
 };
 
 /*
     Pied Piper Playback is used purely for continuously performing playback throughout operation intervals (times of day when the trap should be 
     active (using "OFF" sleep).
 */
-class PiedPiperPlayback : PiedPiperBase
+class PiedPiperPlayback : public PiedPiperBase
 {
     private:
 
@@ -134,10 +126,6 @@ class PiedPiperPlayback : PiedPiperBase
 
     public:
         PiedPiperPlayback();
-        
-        void init(void);
-
-        void update(void);
 
 };
 

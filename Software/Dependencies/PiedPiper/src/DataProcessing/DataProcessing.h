@@ -1,7 +1,7 @@
 #ifndef DATAPROCESSING_h
 #define DATAPROCESSING_h
 
-#include <ArduinoFFTFloat.h>
+#include <ArduinoFFT.h>
 
 /*
  * arrayToPointerArray(...) - converts a 2d array to an array of pointers (NOTE: may remove this and just use pointer arithmetic instead)

@@ -1,6 +1,6 @@
 #include "DataProcessing.h"
 
-ArduinoFFT fft = ArduinoFFT();
+ArduinoFFT<float> fft = ArduinoFFT()<float>;
 
 void FFT(float *inputReal, float *inputImag, uint16_t windowSize) { 
     fft.DCRemoval(inputReal, windowSize);
