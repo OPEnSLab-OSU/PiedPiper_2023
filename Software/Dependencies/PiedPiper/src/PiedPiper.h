@@ -4,10 +4,12 @@
 #include <Arduino.h>
 #include <SD.h>
 #include <Wire.h>
+// #include <SPI.h>
 #include <Adafruit_NeoPixel.h>
 #include "PiedPiperSettings.h"
-#include "Peripherals.h"
-#include "OperationManager.h"
+#include "Devices/Peripherals.h"
+#include "Other/OperationManager.h"
+#include "DataProcessing/DataProcessing.h"
 
 const uint16_t ADC_MAX = (1 << ADC_RESOLUTION) - 1;
 const uint16_t DAC_MAX = (1 << DAC_RESOLUTION) - 1;
@@ -30,61 +32,88 @@ const uint16_t AUD_OUT_SAMPLE_DELAY_TIME = 1000000 / AUD_OUT_SAMPLE_RATE;
 */
 class PiedPiperBase
 {
+
     protected:
-
-        static char playbackFilename[32];
-        static char templateFilename[32];
-        static char operationTimesFilename[32];
-
-    private:
-
         static uint16_t PLAYBACK_FILE[SAMPLE_RATE * PLAYBACK_FILE_LENGTH];
 
         static uint16_t PLAYBACK_FILE_SAMPLE_COUNT;
 
-        static void configurePins(void);
+        static volatile uint16_t PLAYBACK_FILE_BUFFER_IDX;
+
+        static void RESET_PLAYBACK_FILE_INDEX(void);
+
+    private:
+
+        void configurePins(void);
         
         static void calculateDownsampleSincFilterTable(void);
         static void calculateUpsampleSincFilterTable(void);
 
         static void RecordSample(void);
         static void OutputSample(void);
+        static void RecordAndOutputSample(void);
 
     public:
     
-        PiedPiperBase() = 0;
+        PiedPiperBase();        
 
-        static Adafruit_NeoPixel indicator(1, 8, NEO_GRB + NEO_KHZ800);
+        Adafruit_NeoPixel indicator = Adafruit_NeoPixel(1, 8, NEO_GRB + NEO_KHZ800);
 
         static TimerInterruptController TimerInterrupt;
-        static SleepController SleepController;
-        static WDTController WDT;
-        static OperationManager operationManager;
+        SleepController SleepControl;
+        WDTController WDTControl;
+        OperationManager OperationMan;
 
-        SDWrapper SDCard = SDWrapper();
+        SDWrapper SDCard = SDWrapper(PIN_SD_CS);
 
-        RTCWrapper RTC = RTCWrapper(DEFAULT_DS3231_ADDR);
+        RTCWrapper RTCWrap = RTCWrapper(DEFAULT_DS3231_ADDR);
 
-        inline static void Hypnos_3VR_ON(void);
-        inline static void Hypnos_3VR_OFF(void);
+        char calibrationFilename[32];
+        char playbackFilename[32];
+        char templateFilename[32];
+        char operationTimesFilename[32];
 
-        inline static void Hypnos_5VR_ON(void);
-        inline static void Hypnos_5VR_OFF(void);
+        virtual void init(void);
+
+        void Hypnos_3VR_ON(void);
+        void Hypnos_3VR_OFF(void);
+
+        void Hypnos_5VR_ON(void);
+        void Hypnos_5VR_OFF(void);
 
         static void startAudioInput(void);
+        static void startAudioInputAndOutput(void);
         static void stopAudio(void);
         static void performPlayback(void);
 
-        static void initializationFail(void);
-        static void initializationSuccess(void);
+        void initializationFail(void);
+        void initializationSuccess(void);
 
-        static bool loadSettings(char *filename);
+        bool loadSettings(char *filename);
 
-        static bool loadSound(char *filename);
+        bool loadSound(char *filename);
 
-        static bool loadTemplate(char *filename, uint16_t *bufferPtr, uint16_t templateLength);
+        bool loadOperationTimes(char *filename);
 
-        static bool loadOperationTimes(char *filename);
+        bool loadTemplate(char *filename, uint16_t *bufferPtr, uint16_t templateLength);
+
+        template <typename T> void writeArrayToFile(T *array, uint16_t arrayLength) {
+            for (int i = 0; i < arrayLength; i++) {
+                SDCard.data.println(array[i], DEC);
+            }
+        };
+
+        template <typename T> void writeCircularBufferToFile(CircularBuffer<T> *buffer) {
+            uint16_t _rows = buffer->getNumRows();
+            uint16_t _cols = buffer->getNumCols();
+            T *_column = 0;
+            for (int i = 1; i <= _cols; i++) {
+                _column = buffer->getData(i);
+                for (int j = 0; j < _rows; j++) {
+                    SDCard.data.println(_column[j], DEC);
+                }
+            }
+        };
 
         static bool audioInputBufferFull(float *bufferPtr);
 };
@@ -101,6 +130,8 @@ class PiedPiperMonitor : public PiedPiperBase
 {
     private:
 
+    public:
+
         DFRobot_SHT3x tempSensor = DFRobot_SHT3x();
 
         MCP465 preAmp = MCP465(DEFAULT_MCP465_ADDR);
@@ -109,8 +140,13 @@ class PiedPiperMonitor : public PiedPiperBase
 
         PAM8302 amp = PAM8302(PIN_AMP_SD);
 
-    public:
         PiedPiperMonitor();
+
+        void init();
+
+        void calibrate(uint16_t calibrationValue, uint16_t threshold);
+
+
 
 };
 
@@ -122,10 +158,13 @@ class PiedPiperPlayback : public PiedPiperBase
 {
     private:
 
+    public:
+
         PAM8302 amp = PAM8302(PIN_AMP_SD);
 
-    public:
         PiedPiperPlayback();
+
+        void init();
 
 };
 

@@ -1,11 +1,29 @@
 #include "PiedPiper.h"
 
-char PiedPiperBase::playbackFilename[32];
-char PiedPiperBase::templateFilename[32];
-char PiedPiperBase::operationTimesFilename[32];
+PiedPiperBase::PiedPiperBase() {}
 
-uint16_t PiedPiperBase::PLAYBACK_FILE[SAMPLE_RATE * PLAYBACK_FILE_LENGTH];
-uint16_t PiedPiperBase::PLAYBACK_FILE_SAMPLE_COUNT;
+// uint16_t PiedPiperBase::PLAYBACK_FILE[SAMPLE_RATE * PLAYBACK_FILE_LENGTH];
+// uint16_t PiedPiperBase::PLAYBACK_FILE_SAMPLE_COUNT;
+
+void PiedPiperBase::init() {
+    this->configurePins();
+    this->calculateDownsampleSincFilterTable();
+    this->calculateUpsampleSincFilterTable();
+    this->TimerInterrupt.initialize();
+}
+
+void PiedPiperBase::configurePins(void) {
+    pinMode(PIN_HYPNOS_3VR, OUTPUT);
+    pinMode(PIN_HYPNOS_5VR, OUTPUT);
+    pinMode(PIN_SD_CS, OUTPUT);
+    pinMode(PIN_AMP_SD, OUTPUT);
+    pinMode(PIN_AUD_OUT, OUTPUT);
+    pinMode(PIN_AUD_IN, INPUT);
+    pinMode(PIN_RTC_ALARM, INPUT_PULLUP);
+
+    analogReadResolution(ADC_RESOLUTION);
+    analogWriteResolution(DAC_RESOLUTION);
+}
 
 void PiedPiperBase::Hypnos_3VR_ON() { digitalWrite(PIN_HYPNOS_3VR, LOW); }
 
@@ -16,46 +34,49 @@ void PiedPiperBase::Hypnos_5VR_ON() { digitalWrite(PIN_HYPNOS_5VR, HIGH); }
 void PiedPiperBase::Hypnos_5VR_OFF() { digitalWrite(PIN_HYPNOS_5VR, LOW); }
 
 void PiedPiperBase::initializationFail() {
-    this->indicator.begin();
-    this->indicator.clear();
+    indicator.begin();
+    indicator.clear();
 
-    this->WDT.start();
+    WDTControl.start();
 
     while(1) {
-        this->indicator.setPixelColor(0, 255, 0, 0);
-        this->indicator.show();
+        indicator.setPixelColor(0, 255, 0, 0);
+        indicator.show();
         delay(500);
-        this->indicator.setPixelColor(0, 0, 0, 0);
-        this->indicator.show();
+        indicator.setPixelColor(0, 0, 0, 0);
+        indicator.show();
         delay(500);
     }
 }
 
 void PiedPiperBase::initializationSuccess() {
-    this->indicator.begin();
-    this->indicator.clear();
+    indicator.begin();
+    indicator.clear();
 
     delay(500);
-    this->indicator.setPixelColor(0, 0, 255, 0);
-    this->indicator.show();
+    indicator.setPixelColor(0, 0, 255, 0);
+    indicator.show();
     delay(500);
-    this->indicator.setPixelColor(0, 0, 0, 0);
-    this->indicator.show();
+    indicator.setPixelColor(0, 0, 0, 0);
+    indicator.show();
     delay(500);
-    this->indicator.clear();    
+    indicator.clear();    
 }
 
 bool PiedPiperBase::loadSettings(char *filename) {
-    if (!this->SDCard.OpenFile(filename, FILE_READ)) return false;
+    if (!SDCard.openFile(filename, FILE_READ)) return false;
 
-    while (this->SDCard.data.available()) {
-        String settingName = this->SDCard.data.readStringUntil(':');
-        this->SDCard.data.read();
-        String setting = this->SDCard.data.readStringUntil('\n');
+    while (SDCard.data.available()) {
+        String settingName = SDCard.data.readStringUntil(':');
+        SDCard.data.read();
+        String setting = SDCard.data.readStringUntil('\n');
         setting.trim();
 
         // store to corresponding setting on device
-        if (settingName == "playback") {
+        if (settingName == "calibration") {
+            strcpy(this->calibrationFilename, "/PBAUD/");
+            strcat(this->calibrationFilename, setting.c_str());  
+        } else if (settingName == "playback") {
             strcpy(this->playbackFilename, "/PBAUD/");
             strcat(this->playbackFilename, setting.c_str());  
         } else if (settingName == "template") {
@@ -67,74 +88,75 @@ bool PiedPiperBase::loadSettings(char *filename) {
         } else continue;
     }
 
-    this->SDCard.closeFile();
+    SDCard.closeFile();
 
     return true;
 }
 
 bool PiedPiperBase::loadSound(char *filename) {
-    if (!this->SDCard.OpenFile(filename, FILE_READ)) return false;
+    if (!SDCard.openFile(filename, FILE_READ)) return false;
 
     //Serial.println("Opened file. Loading samples...");
 
     // get size of playback file (in bytes)
-    int fsize = this->SDCard.data.size();
+    int fsize = SDCard.data.size();
 
     // playback file is exported as 16-bit unsigned int, the total number of samples stored in the file is fsize / 2
-    this->PLAYBACK_FILE_SAMPLE_COUNT = fsize / 2;
+    PLAYBACK_FILE_SAMPLE_COUNT = fsize / 2;
 
     for (int i = 0; i < PLAYBACK_FILE_SAMPLE_COUNT; i++) {
         // stop reading at end of file, and ensure 2 bytes are available for reading
         if ((2 * i) >= (fsize - 1)) break;
         // read two bytes at a time and store to outputSampleBuffer[i]
-        this->SDCard.data.read(&this->PLAYBACK_FILE[i], 2);
+        SDCard.data.read(&PLAYBACK_FILE[i], 2);
+        // Serial.println(PLAYBACK_FILE[i]);
     }
 
-    this->SDCard.closeFile();
+    SDCard.closeFile();
 
     return true;
 }
 
 bool PiedPiperBase::loadTemplate(char *filename, uint16_t *bufferPtr, uint16_t templateLength) {
-    if (!this->SDCard.OpenFile(filename, FILE_READ)) return false;
+    if (!SDCard.openFile(filename, FILE_READ)) return false;
 
     int t, f;
 
-    while(this->SDCard.data.available()) {
+    while(SDCard.data.available()) {
         for (t = 0; t < templateLength; t++) {
             for (f = 0; f < FFT_WINDOW_SIZE_BY2; f++) {
-                *((this->bufferPtr + f) + t * FFT_WINDOW_SIZE_BY2) = this->SDCard.data.readStringUntil('\n').toInt();
+                *((bufferPtr + f) + t * FFT_WINDOW_SIZE_BY2) = SDCard.data.readStringUntil('\n').toInt();
             }
         }
     }
 
-    this->SDCard.closeFile();
+    SDCard.closeFile();
 
     return true;
 }
 
 bool PiedPiperBase::loadOperationTimes(char *filename) {
-    if (!this->SDCard.OpenFile(filename, FILE_READ)) return false;
+    if (!SDCard.openFile(filename, FILE_READ)) return false;
 
     uint8_t hour = 0;
     uint8_t minute = 0;
     // read and store playback intervals
-    while(this->SDCard.data.available()) {
+    while(SDCard.data.available()) {
         // data in operation intervals file is stored in the following manner (XX:XX - XX:XX)
         // read hour from file (read until colon)
-        hour = this->SDCard.data.readStringUntil(':').toInt();
+        hour = SDCard.data.readStringUntil(':').toInt();
         // read minute
-        minute = this->SDCard.data.readStringUntil(' ').toInt();
-        this->operationManager.addOperationTime(hour, minute);
+        minute = SDCard.data.readStringUntil(' ').toInt();
+        OperationMan.addOperationTime(hour, minute);
         // read until start of end time
-        this->SDCard.data.readStringUntil(' ');
+        SDCard.data.readStringUntil(' ');
         // read hour and minute
-        hour = this->SDCard.data.readStringUntil(':').toInt();
-        minute = this->SDCard.data.readStringUntil('\n').toInt();
-        this->operationManager.addOperationTime(hour, minute);
+        hour = SDCard.data.readStringUntil(':').toInt();
+        minute = SDCard.data.readStringUntil('\n').toInt();
+        OperationMan.addOperationTime(hour, minute);
     }
 
-    this->SDCard.closeFile();
+    SDCard.closeFile();
 
     // SD.end();
     // digitalWrite(HYPNOS_3VR, HIGH);
@@ -147,4 +169,40 @@ bool PiedPiperBase::loadOperationTimes(char *filename) {
     // Serial.println();
 
     return true;
+}
+
+// template <typename T>
+// void PiedPiperBase::writeArrayToFile(T *array, uint16_t arrayLength) {
+//     for (int i = 0; i < arrayLength; i++) {
+//         SDCard.data.println(array[i], DEC);
+//     }
+// }
+
+// template <typename T>
+// void PiedPiperBase::writeCircularBufferToFile(CircularBuffer<T> *buffer) {
+//     uint16_t _rows = buffer->getNumRows();
+//     uint16_t _cols = buffer->getNumCols();
+//     T *_column = 0;
+//     for (int i = 1; i <= _cols; i++) {
+//         _column = buffer->getData(i);
+//         for (int j = 0; j < _rows; j++) {
+//             SDCard.data.println(_column[j], DEC);
+//         }
+//     }
+// }
+
+void PiedPiperBase::performPlayback() {
+    stopAudio();
+
+    analogWrite(PIN_AUD_OUT, DAC_MID);
+    
+    TimerInterrupt.attachTimerInterrupt(AUD_OUT_SAMPLE_DELAY_TIME, OutputSample);
+
+    while (PLAYBACK_FILE_BUFFER_IDX < PLAYBACK_FILE_SAMPLE_COUNT);
+
+    stopAudio();
+
+    RESET_PLAYBACK_FILE_INDEX();
+
+    analogWrite(PIN_AUD_OUT, 0);
 }

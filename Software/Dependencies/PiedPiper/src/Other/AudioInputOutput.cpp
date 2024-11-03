@@ -1,14 +1,14 @@
-#include "PiedPiper.h"
+#include "../PiedPiper.h"
 
 // audio input buffer
 volatile uint16_t AUD_IN_BUFFER[FFT_WINDOW_SIZE];
 volatile uint16_t AUD_IN_BUFFER_IDX = 0;
 
-uint16_t PiedPiperBase::PLAYBACK_FILE_SAMPLE_COUNT = 0;
-
 // audio output buffer
 uint16_t PiedPiperBase::PLAYBACK_FILE[SAMPLE_RATE * PLAYBACK_FILE_LENGTH];
-volatile uint16_t PLAYBACK_FILE_BUFFER_IDX = 0;
+uint16_t PiedPiperBase::PLAYBACK_FILE_SAMPLE_COUNT;
+
+volatile uint16_t PiedPiperBase::PLAYBACK_FILE_BUFFER_IDX = 0;
 
 // calculating sinc table sizes
 const int sincTableSizeDown = (2 * SINC_FILTER_DOWNSAMPLE_ZERO_X + 1) * AUD_IN_DOWNSAMPLE_RATIO - AUD_IN_DOWNSAMPLE_RATIO + 1;
@@ -31,6 +31,8 @@ volatile uint16_t upsampleInputCount = 0;
 volatile float filteredValue = 0.0;
 
 volatile uint16_t nextOutputSample = 0;
+
+void PiedPiperBase::RESET_PLAYBACK_FILE_INDEX() { PLAYBACK_FILE_BUFFER_IDX = 0; }
 
 void PiedPiperBase::calculateDownsampleSincFilterTable(void) {
     int ratio = AUD_IN_DOWNSAMPLE_RATIO;
@@ -107,26 +109,37 @@ void PiedPiperBase::calculateUpsampleSincFilterTable(void) {
     }  
 }
 
-void PiedPiperBase::RecordSample(void) {
-    if (this->AUD_IN_BUFFER_IDX < FFT_WINDOW_SIZE) {
-        // store last location in input buffer and read sample into circular downsampling input buffer
-        int downsampleInputIdxCpy = downsampleInputIdx;
-        downsampleFilterInput[downsampleInputIdx++] = analogRead(AUD_IN);
 
-        if (downsampleInputIdx == sincTableSizeDown) downsampleInputIdx = 0;
-        downsampleInputCount++;
-        // performs downsampling every AUD_IN_DOWNSAMPLE_RATIO samples
-        if (downsampleInputCount == AUD_IN_DOWNSAMPLE_RATIO) {
-            downsampleInputCount = 0;
-            // calculate downsampled value using sinc filter table
-            filteredValue = 0.0;
-            for (int i = 0; i < sincTableSizeDown; i++) {
-                filteredValue += downsampleFilterInput[downsampleInputIdxCpy++] * sincFilterTableDownsample[i];
-                if (downsampleInputIdxCpy == sincTableSizeDown) downsampleInputIdxCpy = 0;
-            }
-            // store downsampled value in input sample buffer
-            AUD_IN_BUFFER[AUD_IN_BUFFER_IDX++] = int(round(filteredValue));
+volatile uint16_t sampleCount = 0;
+
+void PiedPiperBase::RecordAndOutputSample(void) {
+    OutputSample();
+    sampleCount += 1;
+    if (sampleCount == AUD_OUT_UPSAMPLE_RATIO) {
+        sampleCount = 0;
+        RecordSample();
+    }
+}
+
+void PiedPiperBase::RecordSample(void) {
+    if (AUD_IN_BUFFER_IDX >= FFT_WINDOW_SIZE) return;
+    // store last location in input buffer and read sample into circular downsampling input buffer
+    int downsampleInputIdxCpy = downsampleInputIdx;
+    downsampleFilterInput[downsampleInputIdx++] = analogRead(PIN_AUD_IN);
+
+    if (downsampleInputIdx == sincTableSizeDown) downsampleInputIdx = 0;
+    downsampleInputCount++;
+    // performs downsampling every AUD_IN_DOWNSAMPLE_RATIO samples
+    if (downsampleInputCount == AUD_IN_DOWNSAMPLE_RATIO) {
+        downsampleInputCount = 0;
+        // calculate downsampled value using sinc filter table
+        filteredValue = 0.0;
+        for (int i = 0; i < sincTableSizeDown; i++) {
+            filteredValue += downsampleFilterInput[downsampleInputIdxCpy++] * sincFilterTableDownsample[i];
+            if (downsampleInputIdxCpy == sincTableSizeDown) downsampleInputIdxCpy = 0;
         }
+        // store downsampled value in input sample buffer
+        AUD_IN_BUFFER[AUD_IN_BUFFER_IDX++] = int(round(filteredValue));
     }
 }
 
@@ -135,14 +148,14 @@ void PiedPiperBase::OutputSample(void) {
     analogWrite(PIN_AUD_OUT, nextOutputSample);
 
     // return if outside of outputSampleBuffer bounds
-    if (PLAYBACK_FILE_BUFFER_IDX >= playbackSampleCount) return;
+    if (PLAYBACK_FILE_BUFFER_IDX >= PLAYBACK_FILE_SAMPLE_COUNT) return;
     // Otherwise, calculate next upsampled value for AUD_OUT
 
     // store last location of upsampling input buffer
     int upsampleInputIdxCpy = upsampleInputIdx;
 
     // store value of sample to filter input buffer when upsample count == 0, otherwise pad with zeroes
-    upsampleFilterInput[upsampleInputIdx++] = upsampleInputCount++ > 0 ? 0 : PLAYBACK_FILE_BUFFER[PLAYBACK_FILE_BUFFER_IDX++];
+    upsampleFilterInput[upsampleInputIdx++] = upsampleInputCount++ > 0 ? 0 : PLAYBACK_FILE[PLAYBACK_FILE_BUFFER_IDX++];
 
     if (upsampleInputCount == AUD_OUT_UPSAMPLE_RATIO) upsampleInputCount = 0;
     if (upsampleInputIdx == sincTableSizeUp) upsampleInputIdx = 0;
@@ -160,10 +173,11 @@ void PiedPiperBase::OutputSample(void) {
 }
 
 bool PiedPiperBase::audioInputBufferFull(float *bufferPtr) {
-    if !(AUD_IN_BUFFER_IDX < FFT_WINDOW_SIZE) {
-        for (int i = 0; i < FFT_WINDOW_SIZE i++) {
+    if (!(AUD_IN_BUFFER_IDX < FFT_WINDOW_SIZE)) {
+        for (int i = 0; i < FFT_WINDOW_SIZE; i++) {
             bufferPtr[i] = AUD_IN_BUFFER[i];
         }
+        AUD_IN_BUFFER_IDX = 0;
         return true;
     }
     return false;
@@ -171,25 +185,13 @@ bool PiedPiperBase::audioInputBufferFull(float *bufferPtr) {
 }
 
 void PiedPiperBase::startAudioInput() {
-    this->TimerInterrupt.attachTimerInterrupt(AUD_IN_SAMPLE_DELAY_TIME, this->RecordSample);
+    TimerInterrupt.attachTimerInterrupt(AUD_IN_SAMPLE_DELAY_TIME, RecordSample);
+}
+
+void PiedPiperBase::startAudioInputAndOutput() {
+    TimerInterrupt.attachTimerInterrupt(AUD_OUT_SAMPLE_DELAY_TIME, RecordAndOutputSample);
 }
 
 void PiedPiperBase::stopAudio() {
-    this->TimerInterrupt.detachTimerInterrupt();
-}
-
-void PiedPiperBase::performPlayback() {
-    this->stopAudio();
-
-    analogWrite(PIN_AUD_OUT, DAC_MID);
-    
-    this->TimerInterrupt.attachTimerInterrupt(AUD_OUT_SAMPLE_DELAY_TIME, this->OutputSample);
-
-    while (PLAYBACK_FILE_BUFFER_IDX < this->PLAYBACK_FILE_SAMPLE_COUNT)
-
-    this->stopAudio();
-
-    PLAYBACK_FILE_BUFFER_IDX = 0;
-
-    analogWrite(PIN_AUD_OUT, 0);
+    TimerInterrupt.detachTimerInterrupt();
 }

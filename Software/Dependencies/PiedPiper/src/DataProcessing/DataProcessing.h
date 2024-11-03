@@ -1,19 +1,9 @@
 #ifndef DATAPROCESSING_h
 #define DATAPROCESSING_h
 
-#include <ArduinoFFT.h>
+#include <arduinoFFT.h>
 
-/*
- * arrayToPointerArray(...) - converts a 2d array to an array of pointers (NOTE: may remove this and just use pointer arithmetic instead)
- *
- * @param *array - pointer to 2DArray (i.e. (float *)2DArray)
- * @param **ptrArray - output array (array of pointers)
- * @param numRows - number of rows in the 2D array
- * @param numCols - number of columns in 2D array
- * 
- * @note The ptrArray must be allocated so that it has the same number of pointers as the number of columns in the 2D array
- */
-template <typename T> void arrayToPointerArray(T *array, T **ptrArray, uint16_t numRows, uint16_t numCols);
+// ArduinoFFT<float> fft = ArduinoFFT<float>();
 
 /*
  * FFT(...) - uses ArduinoFFT to transform a time domain signal to frequency domain
@@ -32,7 +22,21 @@ void FFT(float *inputReal, float *inputImag, uint16_t windowSize);
  * @param windowSize - the window size of the frequency domain
  * @param numWindows - number of windows in spectrogram
  */
-template <typename T> void TimeSmoothing(T *input, T *output, uint16_t windowSize, uint16_t smoothingSize);
+template <typename T>
+void TimeSmoothing(T *input, T *output, uint16_t windowSize, uint16_t numWindows) {
+    T sum = 0;
+    uint16_t freq, time;
+
+    float _numWindows = 1.0 / numWindows;
+    for (freq = 0; freq < windowSize >> 1; freq++) {
+        sum = 0;
+        output[freq] = 0;
+        for (time = 0; time < numWindows; time++) {
+            sum += *((input + freq) + time * numWindows);
+        }
+        output[freq] = sum * _numWindows;
+    }   
+};
 
 /*
  * FrequencySmoothing(...) - smoothes a frequency domain by averaging all samples within some bounds
@@ -42,7 +46,20 @@ template <typename T> void TimeSmoothing(T *input, T *output, uint16_t windowSiz
  * @param windowSize - the window size of the frequency domain
  * @param smoothingSize - number of samples to use around sample for smoothing
  */
-template <typename T> void FrequencySmoothing(T *input, T *output, uint16_t windowSize, uint16_t smoothingSize);
+template <typename T>
+void FrequencySmoothing(T *input, T *output, uint16_t windowSize, uint16_t smoothingSize) {
+    uint16_t freq, samp, startIdx, endIdx;
+
+    for (freq = 0; freq < windowSize >> 1; freq++) {
+        startIdx = max(0, freq - smoothingSize);
+        endIdx = min((windowSize >> 1) - 1, freq + smoothingSize);
+        output[freq] = 0;
+        for (samp = startIdx; samp <= endIdx; samp++) {
+            output[freq] += input[samp];
+        }
+        output[freq] /= endIdx - startIdx;
+    }
+};
 
 /* 
  * AlphaTrimming(...) - removes stochastic noise from a frequency domain
@@ -52,7 +69,50 @@ template <typename T> void FrequencySmoothing(T *input, T *output, uint16_t wind
  * @param windowSize - the window size of the frequency domain
  * @param smoothingSize - number of samples to use around sample for computing standard deviation of sample
  */
-template <typename T> void AlphaTrimming(T *input, T *output, uint16_t windowSize, uint16_t smoothingSize, float deviationThreshold);
+template <typename T>
+void AlphaTrimming(T *input, T *output, uint16_t windowSize, uint16_t smoothingSize, float deviationThreshold) {
+    uint16_t i, s, startIdx, endIdx, boundNumSamples;
+    float boundSum, boundAvg, boundStdDev;
+
+    // copy data to output array to use as scratchpad array
+    for (i = 0; i < windowSize >> 1; i++) {
+        output[i] = input[i];
+    }
+
+    for (i = 0; i < windowSize >> 1; i++) {
+        // calculate lower and upper bounds based on smoothingSize
+        startIdx = max(0, i - smoothingSize);
+        endIdx = min((windowSize >> 1) - 1, i + smoothingSize);
+        boundNumSamples = endIdx - startIdx;
+
+        // get average of magnitudes within lower and upper bound
+        boundSum = 0;
+        for (s = startIdx; s <= endIdx; s++) {
+            boundSum += input[s];
+        }
+        boundAvg = boundSum / boundNumSamples;
+
+        // get standard deviation of magnitudes within lower and upper bound
+        boundStdDev = 0;
+        for (s = startIdx; s <= endIdx; s++) {
+            boundStdDev += pow(input[s] - boundAvg, 2);
+        }
+        boundStdDev = sqrt(boundStdDev / boundNumSamples);
+
+        // check deviation of each sample within lower and upper bound. If sample deviation is greater than some threshold, 
+        // replace sample in subtraction data with the average of the bound excluding this sample
+        boundNumSamples -= 1;
+        for (s = startIdx; s <= endIdx; s++) {
+            if ((input[s] - boundAvg) / boundStdDev > deviationThreshold)
+                output[s] = (boundSum - input[s]) / boundNumSamples;
+        }
+    }
+
+    // subtraction of trimmed data from raw data
+    for (i = 0; i < windowSize >> 1; i++) {
+        output[i] = input[i] - output[i];
+    }
+};
 
 
 /*
@@ -60,32 +120,66 @@ template <typename T> void AlphaTrimming(T *input, T *output, uint16_t windowSiz
  *
  * 
  */
-template <class T> class CircularBuffer
+template <typename T>
+class CircularBuffer
 {
     private:
-        T **bufferPtr;
+        T *bufferPtr;
 
-        uint8_t bufferIndex;
+        uint16_t bufferIndex;
 
         uint16_t numRows;
-        uint16_t numColumns;
+        uint16_t numCols;
 
     public:
-        CircularBuffer(void);
+        CircularBuffer(void) {
+            this->bufferPtr = NULL;
+            this->bufferIndex = 0;
+            this->numRows = 0;
+            this->numCols = 0;
+        };
 
-        void setBuffer(T *bufferPtr, uint16_t numRows, uint16_t numColumns)
+        void setBuffer(T *bufferPtr, uint16_t numRows, uint16_t numColumns) {
+            this->bufferPtr = bufferPtr;
 
-        void pushData(T *data);
+            this->numRows = numRows;
+            this->numCols = numCols;
+        };
 
-        T *getCurrentData(void);
+        uint16_t getNumRows(void) const { return this->numRows; };
 
-        T *getData(int relativeIndex);
+        uint16_t getNumCols(void) const { return this->numCols; };
 
-        T **getBuffer(void);
+        void pushData(T *data) {
+            this->bufferIndex += 1;
+            if (this->bufferIndex == this->numCols) this->bufferIndex = 0;
 
-        void clearBuffer(void);
+            for (int i = 0; i < this->numRows; i++) {
+                *((this->bufferPtr + i) + this->numRows *  this->bufferIndex) = data[i];
+            }
+        };
+        
+        uint16_t getCurrentIndex(void) const { return this->bufferIndex; };
 
-}
+        T *getCurrentData(void) { return this->bufferPtr + this->numRows * this->bufferIndex; };
+
+        T *getData(int relativeIndex) {
+            uint16_t _index = (this->bufferIndex + this->numCols + relativeIndex) % this->numCols;
+            return this->bufferPtr + _index * this->numRows;
+        };
+
+        T *getBuffer(void) { return this->bufferPtr; };
+
+        void clearBuffer(void) {
+            for (int t = 0; t < this->numCols; t++) {
+                for (int f = 0; f < this->numRows; f++) {
+                    *((this->bufferPtr + f) + t * this->numRows) = 0;
+                }
+            }
+            this->bufferIndex = 0;
+        };
+
+};
 
 /*
  *
@@ -100,7 +194,7 @@ class CrossCorrelation
         uint32_t templateSqrtSumSq;
 
         uint16_t numRows;
-        uint16_t numColumns;
+        uint16_t numCols;
 
         uint16_t sampleRate;
         uint16_t windowSize;
@@ -114,7 +208,7 @@ class CrossCorrelation
 
         void setTemplate(uint16_t *input, uint16_t numRows, uint16_t numCols, uint16_t frequencyRangeLow, uint16_t frequencyRangeHigh);
 
-        float correlate(uint16_t *inputPtr, uint16_t inputStartWindowIndex, uint16_t inputTotalWindows = this->numCols);
+        float correlate(uint16_t *input, uint16_t inputLatestWindowIndex, uint16_t inputTotalWindows);
 };
 
 #endif

@@ -11,6 +11,13 @@
         "cmath": "cpp",
         "complex": "cpp",
         "istream": "cpp",
-        "*.tcc": "cpp"
+        "*.tcc": "cpp",
+        "fstream": "cpp",
+        "atomic": "cpp",
+        "charconv": "cpp",
+        "format": "cpp",
+        "ranges": "cpp",
+        "variant": "cpp",
+        "ostream": "cpp"
     }
 }

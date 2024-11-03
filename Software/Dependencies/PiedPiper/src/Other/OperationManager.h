@@ -1,18 +1,18 @@
 #ifndef OPERATION_MANAGER_h
 #define OPERATION_MANAGER_h
 
-#include <SD.h>
+#include "RTClib.h"
+
+struct opTime {
+    uint8_t hour;   ///< the corresponding hour
+    uint8_t minute; ///< the corresponding minute
+    int16_t minutes;  ///< total minutes (hour * 60 + minute)
+};
 
 class OperationManager
 {
 
     private:
-
-        struct opTime {
-            uint8_t hour;   ///< the corresponding hour
-            uint8_t minute; ///< the corresponding minute
-            int16_t minutes;  ///< total minutes (hour * 60 + minute)
-        };
 
         opTime *operationTimes;
 

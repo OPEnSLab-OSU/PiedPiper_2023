@@ -29,8 +29,8 @@ DateTime RTCWrapper::getDateTime() {
     return this->rtc.now();
 }
 
-bool RTCWrapper::clearAlarm() {
-    rtc.clearAlarm(1);
+void RTCWrapper::clearAlarm(void) {
+    this->rtc.clearAlarm(1);
 }
 
 bool RTCWrapper::setAlarm(DateTime alarmDateTime) {

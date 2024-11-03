@@ -1,6 +1,6 @@
-#include "Peripherals"
+#include "Peripherals.h"
 
-SDWrapper::SD(uint8_t PIN_CS) {
+SDWrapper::SDWrapper(uint8_t PIN_CS) {
     this->PIN_CS = PIN_CS;
 }
 
@@ -18,11 +18,11 @@ void SDWrapper::end(void) {
     SD.end();
 }
 
-bool SDWrapper::openFile(char *fname, uint8_t mode) {
-    if (mode == FILE_READ && !SD.exists(fname)) return false;
+bool SDWrapper::openFile(char *filename, uint8_t mode) {
+    if (mode == FILE_READ && !SD.exists(filename)) return false;
 
     // open file in mode
-    this->data = SD.open(fname, mode);
+    this->data = SD.open(filename, mode);
 
     // check if file was opened successfully
     if (!this->data) {

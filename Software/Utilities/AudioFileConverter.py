@@ -28,11 +28,11 @@
 
 import os, wave, sys
 
-inFile = 'trial26_resampled2.wav'
+inFile = 'BMSB_CAL.wav'
 
 wfile = wave.open(inFile, 'rb')
 
-outFileName = 'BMSB.PAD'
+outFileName = 'BMSB_CAL.PAD'
 
 ratio = (2**12) / (2**16)
 offset = (2**12) / 2

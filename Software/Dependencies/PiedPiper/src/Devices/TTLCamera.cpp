@@ -1,7 +1,7 @@
 #include "Peripherals.h"
 
-TTLCamera::TTLCamera(void) {
-
+TTLCamera::TTLCamera() {
+    
 }
 
 bool TTLCamera::initialize() {
@@ -12,14 +12,12 @@ bool TTLCamera::initialize() {
     return false;
 }
 
-void TTLCamera::cameraOn() {
-    cam.begin();
-    return;
+bool TTLCamera::cameraOn() {
+    return cam.begin();
 }
 
-void TTLCamera::cameraOff() {
-    cam.reset();
-    return;
+bool TTLCamera::cameraOff() {
+    return cam.reset();
 }
 
 bool TTLCamera::takePhoto(File *file) {

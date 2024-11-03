@@ -1,5 +1,9 @@
 #include "Peripherals.h"
 
+WDTController::WDTController() {
+    
+}
+
 void WDTController::start() {
     REG_WDT_CONFIG = WDT_CONFIG_PER_CYC4096;
     REG_WDT_CTRLA = WDT_CTRLA_ENABLE;

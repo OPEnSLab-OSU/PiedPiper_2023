@@ -5,7 +5,6 @@
 #include <Wire.h>
 #include <SD.h>
 #include "RTClib.h"
-#include "SAMDTimerInterrupt.h"
 #include <Adafruit_VC0706.h>
 #include <DFRobot_SHT3x.h>
 
@@ -13,11 +12,11 @@ class TimerInterruptController
 {
     private:
 
-        // static SAMDTimer ITimer(TIMER_TC3);
-        
         static void blankFunction(void);
         
     public:
+
+        TimerInterruptController();
 
         static void initialize(void);
         static void attachTimerInterrupt(const unsigned long interval_us, void(*fnPtr)());
@@ -31,10 +30,23 @@ class WDTController
     public:
 
         WDTController();
-        inline void start();
-        inline void reset();
+        void start();
+        void reset();
         
-}
+};
+
+/** sleep modes available on the Feather M4 Express. */
+enum SLEEPMODES
+{
+    IDLE0 = 0x0,      ///< IDLE0
+    IDLE1 = 0x1,      ///< IDLE1
+    IDLE2 = 0x2,      ///< IDLE2
+    STANDBY = 0x4,    ///< STANDBY sleep mode can exited with a interrupt (this sleep mode is good, but draws ~20mA by default)
+    HIBERNATE = 0x5,  ///< HIBERNATE sleep mode can only be exited with a device reset
+    BACKUP = 0x6,     ///< BACKUP sleep mode can only be exited with a device reset
+    OFF = 0x7         ///< OFF sleep mode can only be exited with a device reset (best sleep mode to use for least power consumption)
+};
+
 
 class SleepController
 {
@@ -42,20 +54,8 @@ class SleepController
 
     public:
 
-        /** sleep modes available on the Feather M4 Express. */
-        enum SLEEPMODES
-        {
-            IDLE0 = 0x0,      ///< IDLE0
-            IDLE1 = 0x1,      ///< IDLE1
-            IDLE2 = 0x2,      ///< IDLE2
-            STANDBY = 0x4,    ///< STANDBY sleep mode can exited with a interrupt (this sleep mode is good, but draws ~20mA by default)
-            HIBERNATE = 0x5,  ///< HIBERNATE sleep mode can only be exited with a device reset
-            BACKUP = 0x6,     ///< BACKUP sleep mode can only be exited with a device reset
-            OFF = 0x7         ///< OFF sleep mode can only be exited with a device reset (best sleep mode to use for least power consumption)
-        };
-
         SleepController();
-        inline void goToSleep(SLEEPMODES sleepMode);
+        void goToSleep(SLEEPMODES sleepMode);
 
 };
 
@@ -77,7 +77,7 @@ class SDWrapper
 
         void end(void);
 
-        bool openFile();
+        bool openFile(char *filename, uint8_t mode);
 
         void closeFile(void);
 
@@ -87,7 +87,7 @@ class TTLCamera
 {
     private:
 
-        Adafruit_VC0706 cam = Adafruit_VC0706(&Serial1)
+        Adafruit_VC0706 cam = Adafruit_VC0706(&Serial1);
 
     public:
 
@@ -118,7 +118,7 @@ class RTCWrapper
 
         DateTime getDateTime(void);
 
-        bool clearAlarm(void);
+        void clearAlarm(void);
 
         bool setAlarm(DateTime alarmDateTime);
 
@@ -139,10 +139,10 @@ class MCP465
 
         bool initialize(void);
 
-        bool incrementWiper(void);
-        bool decrementWiper(void);
+        uint8_t incrementWiper(void);
+        uint8_t decrementWiper(void);
 
-        bool writeWiperValue(uint16_t wiperValue);
+        uint8_t writeWiperValue(uint16_t wiperValue);
         uint16_t readWiperValue(void);
 
 };
@@ -174,8 +174,8 @@ class PAM8302
 
         PAM8302(uint8_t PIN_SD);
 
-        inline void powerOn();
-        inline void powerOff();
-}
+        void powerOn();
+        void powerOff();
+};
 
 #endif
