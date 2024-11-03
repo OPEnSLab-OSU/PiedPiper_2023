@@ -1,0 +1,23 @@
+{
+    "C_Cpp.errorSquiggles": "disabled",
+    "files.associations": {
+        "algorithm": "cpp",
+        "chrono": "cpp",
+        "limits": "cpp",
+        "random": "cpp",
+        "utility": "cpp",
+        "xutility": "cpp",
+        "compare": "cpp",
+        "cmath": "cpp",
+        "complex": "cpp",
+        "istream": "cpp",
+        "*.tcc": "cpp",
+        "fstream": "cpp",
+        "atomic": "cpp",
+        "charconv": "cpp",
+        "format": "cpp",
+        "ranges": "cpp",
+        "variant": "cpp",
+        "ostream": "cpp"
+    }
+}
