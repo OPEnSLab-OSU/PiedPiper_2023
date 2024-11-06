@@ -4,6 +4,17 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 import scipy.io.wavfile as wf
 
+### SIGNAL GENERATOR ###    
+
+def generateTone(sampleRate, windowSize, frequency, amplitude, phase):
+
+    output = []
+    step = 2.0 * np.pi * frequency / sampleRate
+    for i in range(0, windowSize):
+        output.append(amplitude * np.sin(step * i + phase))
+
+    return np.array(output)
+
 ### SINC FILTER ###
 
 def downsampleTable(ratio, nz):
@@ -219,25 +230,44 @@ def RCFilter(signal, sampleRate, cutoffFrequency):
 
 #     return output
 
-### PRINT RAW signal ###
+### PRINT AND SAVE SIGNALS ###
 
-def printRealSignal(signal, sampleRate, title):
+TDSignalSaveCount = 0
+FDSignalSaveCount = 0
+
+def printTimeDomainSignal(signal, sampleRate, title=None, ylabel=None, show=True, save=False, fname=None):
     """
-    saveRealSignal plots a signal
-    : param: signal: some signal (1d array)
+    printTimeDomainSignal plots a signal
+    : param: signal: some TD signal (1d array)
     : param: sampleRate: sample rate of signal
     : param: title: title of plot
+    : param: ylabel: y-axis label
+    : param: show: show the plot (default True)
+    : param: save: save the plot (default False)
+    : param: fname: output file name, will save file as 'signal#.png' if unspecified (default None)
     """
     time = np.linspace(0, len(signal) / sampleRate, len(signal))
 
     plt.plot(time, signal)
-    plt.xlabel("Time (seconds)")
+    plt.xlabel("Time (seconds) - %d samples" % (len(signal)))
+    if ylabel != None: 
+        plt.ylabel(ylabel)
     plt.title("%s - %dHz sample rate" % (title, sampleRate))
-    plt.show()
 
-def loadRealSignal(inFile):
+    if save:
+        if fname == None:
+            global TDSignalSaveCount
+            plt.savefig("TD_signal%d" % (TDSignalSaveCount))
+            TDSignalSaveCount += 1
+        else:
+            plt.savefig(fname)
+    
+    if show:
+        plt.show()
+
+def loadTimeDomainSignal(inFile):
     """
-    loadRealSignal loads some audio data (.wav file exported as unsigned 16 bit recommended)
+    loadTimeDomainSignal loads some audio data (.wav file exported as signed 16 bit recommended)
     : param: inFile: input filename
     : return: samples of audio data (1d array)
     """
@@ -253,14 +283,60 @@ def loadRealSignal(inFile):
 
     return np.array(w_signal)
 
-def saveRealSignal(outFile, sampleRate, signal):
+def saveTimeDomainSignal(outFile, sampleRate, signal):
     """
-    saveRealSignal saves some signal as audio
+    saveTimeDomainSignal saves some signal as audio
     : param: outFile: output filename
     : param: srate: sample rate of signal
     : param: signal: some signal (1d array)
     """
     wf.write(outFile, sampleRate, np.int16(signal))
+
+def printFrequencyDomainSignal(signal, sampleRate, title=None, ylabel=None, show=True, save=False, fname=None):
+    """
+    printTimeDomainSignal plots a signal
+    : param: signal: some FD signal (1d array)
+    : param: sampleRate: sample rate of signal
+    : param: title: title of plot
+    : param: ylabel: y-axis label
+    : param: show: show the plot (default True)
+    : param: save: save the plot (default False)
+    : param: fname: output file name, will save file as 'FD_signal#.png' (i.e. FD_signal0.png) if unspecified (default None)
+    """
+
+    frequency = np.arange(0, sampleRate >> 1, sampleRate / (2 * len(signal)))
+
+    plt.plot(frequency, signal)
+    plt.xlabel("Frequency (Hz) - %d bins" % (len(signal)))
+    if ylabel != None: 
+        plt.ylabel(ylabel)
+    plt.title("%s - %dHz sample rate" % (title, sampleRate))
+
+    if save:
+        if fname == None:
+            global FDSignalSaveCount
+            plt.savefig("FD_Signal%d" % (FDSignalSaveCount))
+            FDSignalSaveCount += 1
+        else:
+            plt.savefig(fname)
+    
+    if show:
+        plt.show()
+    else:
+        plt.close()
+
+
+def saveData(data, filename):
+    """
+    saveData saves data from array (1d or 2d) into txt file
+    : param: data: specgram data (1d or 2d array)
+    : param: filename: output file name (.txt)
+    """
+
+    with open(filename, "w") as file:
+        for window in data:
+            for m in window:
+                file.write(str(m) + '\n')
 
 ### SPECTROGRAM ###
 
@@ -370,8 +446,10 @@ def crossCorrelation(data1, data2):
     # do dot product, dividing by sum of data1 and data2 to normalize
     
     dot_data1_data2 = data1 * data2
+
+    crossProduct = np.sqrt(np.sum(data1 * data1)) * np.sqrt(np.sum(data2 * data2))
     
-    dot_data1_data2 /= np.sqrt(np.sum(data1 * data1)) * np.sqrt(np.sum(data2 * data2))
+    dot_data1_data2 /= crossProduct
 
     return dot_data1_data2
 
@@ -419,17 +497,27 @@ def signalAlignment(data1, data2, data1SampleRate, data2SampleRate):
 
     return output
 
+# global variable for saving figures
+specSaveCount = 0
 
-def printSpecgram(data, sampleRate, min = None, max = None, title = None):
+def printSpecgram(data, sampleRate, windowSize = None, startFreq = None, endFreq = None, min = None, max = None, title = None, shading='gouraud', show=True, save=False, fname=None):
     """
     printSpecgram plots 2d specgram using pcolormesh
-    : param data: some specgram data (2d array)
-    : param sampleRate: sample rate of specgram data
-    : param: min: min value for specgram
-    : param: max: max value for specgram
-    : param: title: title of plot
+    : param: data: some specgram data (2d array)
+    : param: sampleRate: sample rate of specgram data
+    : param: windowSize: window size of specgram (not necassary if specgram is uncropped)
+    : param: startFreq: custom frequency scale min (default None)
+    : param: endFreq: custom frequency scale max (default None)
+    : param: min: min value for specgram (default None)
+    : param: max: max value for specgram (default None)
+    : param: title: title of plot (default None)
+    : param: shading: shading to use for specgram (default 'gourand')
+    : param: show: show the plot (default True)
+    : param: save: save the plot (default False)
+    : param: fname: output file name, will save file as 'specgram#.png' if unspecified (default None)
     """
     spec_out = []
+
 
     for i in range(0, len(data[0])):
         spec_out.append([])
@@ -439,15 +527,31 @@ def printSpecgram(data, sampleRate, min = None, max = None, title = None):
     nyquist = int(sampleRate / 2)
 
     wt = len(data[0]) / nyquist
+    if (windowSize != None):
+        wt = windowSize / nyquist / 2
 
     td = np.linspace(0, len(data) * wt, len(data))
     fd = np.linspace(0, nyquist, len(data[0]))
+    if (startFreq != None and endFreq != None):
+        fd = np.linspace(startFreq, endFreq, len(data[0]))
 
-    plt.pcolormesh(td, fd, spec_out, shading='gouraud', cmap=plt.colormaps['plasma'], vmin=min, vmax=max)
+    plt.pcolormesh(td, fd, spec_out, shading=shading, cmap=plt.colormaps['plasma'], vmin=min, vmax=max)
     plt.xlabel("Time (seconds)")
     plt.ylabel("Frequency (Hz)")
     plt.title(title)
-    plt.show()
+
+    if save:
+        if fname == None:
+            global specSaveCount
+            plt.savefig("specgram%d" % (specSaveCount))
+            specSaveCount += 1
+        else:
+            plt.savefig(fname)
+    
+    if show:
+        plt.show()
+
+    plt.close()
 
 def printSpecgramSurfacePlot(data, sampleRate, zlabel = None, max = None, title = None):
     """
@@ -458,7 +562,7 @@ def printSpecgramSurfacePlot(data, sampleRate, zlabel = None, max = None, title 
     : param: max: crop data to this value
     : param: title: title of surface plot
     """
-    wt = len(data[0]) / (sampleRate >> 1)
+    wt = len(data[0]) / (sampleRate >> 1)   
 
     X = np.linspace(0, sampleRate >> 1, len(data[0]))
     Y = np.linspace(0, len(data) * wt, len(data))
@@ -529,7 +633,7 @@ def alphaTrimming(data, winSize, threshold):
             # if sample deviation is above threshold, exclude sample from trimming data
             if ((data[k] - marginAvg) / marginStdDev) > threshold:
                 # replace sample in tempData with average value of samples in window (excluding this sample)
-                tempData[k] = np.average(np.hstack((tempData[startIdx:k], tempData[k + 1:endIdx + 1])))
+                tempData[k] = np.average(np.hstack((data[startIdx:k], data[k + 1:endIdx + 1])))
 
     # trimming
     return np.array(data) - np.array(tempData)

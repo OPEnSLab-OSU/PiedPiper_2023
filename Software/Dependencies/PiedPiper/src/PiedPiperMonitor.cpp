@@ -6,35 +6,80 @@ PiedPiperMonitor::PiedPiperMonitor() {
 
 void PiedPiperMonitor::init() {
     PiedPiperBase::init();
+
+}
+
+void PiedPiperMonitor::frequencyResponse() {
+    char outFile[] = "FR0.txt";
+    char outFile2[] = "DSR0.txt";
+    float _temp[FFT_WINDOW_SIZE];
+    float _temp2[FFT_WINDOW_SIZE];
+
+    for (uint16_t i = 0; i < FFT_WINDOW_SIZE; i++) {
+        PLAYBACK_FILE[i] = DAC_MID;
+        _temp2[i] = 0;
+    }
+    PLAYBACK_FILE[FFT_WINDOW_SIZE_BY2] = DAC_MAX;
+
+    PLAYBACK_FILE_SAMPLE_COUNT = 256;
+
+    RESET_PLAYBACK_FILE_INDEX();
+
+    analogWrite(PIN_AUD_OUT, 2048);
+
+    startAudioInputAndOutput();
+
+    while (!audioInputBufferFull(_temp));
+
+    stopAudio();
+
+    SDCard.openFile(outFile2, FILE_WRITE);
+    writeArrayToFile<float>(_temp, FFT_WINDOW_SIZE);
+    SDCard.closeFile();
+
+    analogWrite(PIN_AUD_OUT, 0);
+
+    FFT(_temp, _temp2, FFT_WINDOW_SIZE);
+
+    for (int i = 0; i < FFT_WINDOW_SIZE_BY2; i++) {
+        _temp[i] *= WINDOW_SIZE / float(SAMPLE_RATE);
+    }
+
+    SDCard.openFile(outFile, FILE_WRITE);
+    writeArrayToFile<float>(_temp, FFT_WINDOW_SIZE_BY2);
+    SDCard.closeFile();
+
+    
 }
 
 void PiedPiperMonitor::calibrate(uint16_t calibrationValue, uint16_t threshold) {
 
     uint16_t _playbackNumWindows = round(PLAYBACK_FILE_SAMPLE_COUNT / WINDOW_SIZE);
-    uint16_t _calValLow, _calValHigh, _nextPotValue, _nextPotValueBy2, _windowCount, i;
-    float _max;
+    uint16_t _calValLow, _calValHigh, _nextPotValueBy2, _windowCount, i;
+    int16_t _nextPotValue, _lastPotValue;
+    uint16_t _max;
     float _temp[FFT_WINDOW_SIZE];
 
     _calValLow = calibrationValue - threshold;
     _calValHigh = calibrationValue + threshold;
-    _nextPotValue = 256;
-    _nextPotValueBy2 = _nextPotValue;
+    _nextPotValue = 0;
+    _nextPotValueBy2 = 256;
     _windowCount = 0;
 
-    // Hypnos_5VR_ON();
-
-    // Wire.begin();
-    // preAmp.writeWiperValue(_nextPotValue);
-    // Wire.end();
-
-    // amp.powerOn();
-
     analogWrite(PIN_AUD_OUT, 2048);
+
+    startAudioInputAndOutput();
+
+    while (!audioInputBufferFull(_temp));
 
     while (1) {
 
         _max = 0;
         _windowCount = 0;
+
+        Serial.println(_nextPotValue);
+
+        if (preAmp.writeWiperValue(_nextPotValue) > 0) Serial.println("writeWiperValue() error");
 
         RESET_PLAYBACK_FILE_INDEX();
 
@@ -53,26 +98,23 @@ void PiedPiperMonitor::calibrate(uint16_t calibrationValue, uint16_t threshold) 
 
         stopAudio();
 
-        analogWrite(PIN_AUD_OUT, 0);
+        analogWrite(PIN_AUD_OUT, 2048);
+
+        Serial.println(_max);
+
+        _lastPotValue = _nextPotValue;
 
         _nextPotValueBy2 = _nextPotValueBy2 >> 1;
         _nextPotValueBy2 = _nextPotValueBy2 > 0 ? _nextPotValueBy2 : 1;
 
-        if (_max > _calValHigh) _nextPotValue = max(0, _nextPotValue - _nextPotValueBy2);
-        else if (_max < _calValLow) _nextPotValue = min(256, _nextPotValue  + _nextPotValueBy2);
+        if (_max > _calValHigh) _nextPotValue = _nextPotValue + _nextPotValueBy2;
+        else if (_max < _calValLow) _nextPotValue = _nextPotValue - _nextPotValueBy2;
         else break;
 
-        Serial.println(_nextPotValue);
+        _nextPotValue = max(0, min(256, _nextPotValue));
 
-        // Wire.begin();
-
-        // preAmp.writeWiperValue(_nextPotValue);
-
-        // Wire.end();
+        if (_nextPotValue == _lastPotValue) break;
 
     }
-
-    // amp.powerOff();
-    // Hypnos_5VR_OFF();
 
 }

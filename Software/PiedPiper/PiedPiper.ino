@@ -5,16 +5,16 @@
 #include <PiedPiper.h>
 
 // detection algorithm settings
-#define CORRELATION_THRESH 0.75
+#define CORRELATION_THRESH 0.95
 #define NOISE_REMOVAL_SIZE 8
-#define NOISE_REMOVAL_THRESH 3.5 
+#define NOISE_REMOVAL_THRESH 1.5 
 #define TIME_AVERAGING 4    // time domain smoothing size / length of raw frequency buffer
 #define FREQ_SMOOTHING 4    // frequency domain smoothing size
 
 // preamp calibration values (audio input circuit gain is adjusted so that the maximum value read from ADC is in this range:
 // [PREAMP_CALIBRATION - PREAMP_CALIBRATION_THESH, PREAMP_CALIBRATION + PREAMP_CALIBRATION_THESH]
-#define PREAMP_CALIBRATION 3500 
-#define PREAMP_CALIBRATION_THRESH 50
+#define PREAMP_CALIBRATION 2500 
+#define PREAMP_CALIBRATION_THRESH 100
 
 #define TEMPLATE_LENGTH 13  // length of correlation template (in windows)
 
@@ -24,9 +24,9 @@ const uint16_t FREQ_WIN_COUNT = REC_TIME * FFT_SAMPLE_RATE / FFT_WINDOW_SIZE; //
 
 char settingsFilename[] = "SETTINGS.txt"; // settings filename (loaded from SD card)
 
-uint16_t correlationTemplate[TEMPLATE_LENGTH][FFT_WINDOW_SIZE_BY2]; // buffer for template data
-uint16_t processedFreqs[FREQ_WIN_COUNT][FFT_WINDOW_SIZE_BY2];       // buffer for processed frequency data
-uint16_t rawFreqs[TIME_AVERAGING][FFT_WINDOW_SIZE_BY2];             // buffer for raw frequency data
+uint16_t correlationTemplate[FFT_WINDOW_SIZE_BY2][TEMPLATE_LENGTH]; // buffer for template data
+uint16_t processedFreqs[FFT_WINDOW_SIZE_BY2][FREQ_WIN_COUNT];       // buffer for processed frequency data
+uint16_t rawFreqs[FFT_WINDOW_SIZE_BY2][TIME_AVERAGING];             // buffer for raw frequency data
 
 // buffers for FFT
 float vReal[FFT_WINDOW_SIZE];
@@ -44,7 +44,7 @@ CircularBuffer<uint16_t> processedFreqsBuffer = CircularBuffer<uint16_t>(); // c
 CrossCorrelation correlation = CrossCorrelation(FFT_SAMPLE_RATE, FFT_WINDOW_SIZE);
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(2000000);
 
     delay(2000);
 
@@ -62,11 +62,9 @@ void setup() {
       p.SDCard.begin();
   
       if (!p.loadSettings(settingsFilename)) Serial.println("loadSettings() error");
-      if (!p.loadSound(p.calibrationFilename)) Serial.println("loadSound() error");
       if (!p.loadTemplate(p.templateFilename, (uint16_t *)correlationTemplate, TEMPLATE_LENGTH)) Serial.println("loadTemplate() error");
       if (!p.loadOperationTimes(p.operationTimesFilename)) Serial.println("loadOperationTimes() error");
     }
-    p.SDCard.end();
 
 
     // begin I2C
@@ -81,17 +79,14 @@ void setup() {
     else {
       dt = p.RTCWrap.getDateTime();
       int minutesTillNextAlarm = p.OperationMan.minutesTillNextOperationTime(dt, trapActive);
-      p.RTCWrap.setAlarmSeconds(minutesTillNextAlarm * 60);
+      //p.RTCWrap.setAlarmSeconds(minutesTillNextAlarm * 60);
     }
 
     // check if digital pot and temp sensor can be initialized
-    p.Hypnos_5VR_ON();
+    p.Hypnos_5VR_ON();  
 
     if (!p.preAmp.initialize()) Serial.println("Digital pot cannot be initialized");
     if (!p.tempSensor.begin()) Serial.println("Temp sensor cannot be initialized");
-
-    // end I2C
-    Wire.end();
 
     // check if camera can be initialized
     if (!p.camera.initialize()) Serial.println("TTL Camera cannot be initialized");
@@ -99,24 +94,37 @@ void setup() {
     p.initializationSuccess();
   
     // if current time is outside of operation interval, go to sleep
-    if (!trapActive) p.SleepControl.goToSleep(OFF);
+    // if (!trapActive) p.SleepControl.goToSleep(OFF);
 
     // set circular buffers and template
     rawFreqsBuffer.setBuffer((uint16_t *)rawFreqs, FFT_WINDOW_SIZE_BY2, TIME_AVERAGING);
     processedFreqsBuffer.setBuffer((uint16_t *)processedFreqs, FFT_WINDOW_SIZE_BY2, FREQ_WIN_COUNT);
     correlation.setTemplate((uint16_t *)correlationTemplate, FFT_WINDOW_SIZE_BY2, TEMPLATE_LENGTH, 50, 100);
 
-    // perform calibration (set digital pot)
+    // perform calibration (set digital pot) 
+
     p.amp.powerOn();
-    p.calibrate(3500, 50);
+
+    // p.frequencyResponse();
+
+    if (!p.loadSound(p.calibrationFilename)) Serial.println("loadSound() error");
+
+    //p.calibrate(PREAMP_CALIBRATION, PREAMP_CALIBRATION_THRESH);
+
+    Serial.println("calibration complete");
+
     p.amp.powerOff();
 
     p.Hypnos_5VR_OFF();
 
     // load playback sound
-    p.SDCard.begin();
     p.loadSound(p.playbackFilename);
+
+    // end SD
     p.SDCard.end();
+
+    // end I2C
+    Wire.end();
 
     p.Hypnos_3VR_OFF();
 
@@ -126,13 +134,22 @@ void setup() {
 }
 
 float correlationThresh = 0.0;
+uint16_t correlationCount = 0;
+uint32_t lastCorrelationTime = 0;
+
+int count = 0;
+
+uint32_t microsTime;
 
 void loop() {
   // check if audio input buffer is filled
   if (!p.audioInputBufferFull(vReal)) return;
 
+  // Serial.println(count++);
+
   // prepare arrays for FFT
   for (int i = 0; i < FFT_WINDOW_SIZE; i++) {
+    //Serial.println(vReal[i]);
     vImag[i] = 0;
   }
 
@@ -161,8 +178,64 @@ void loop() {
   // correlation with processed data and template
   correlationThresh = correlation.correlate((uint16_t *)processedFreqs, processedFreqsBuffer.getCurrentIndex(), FREQ_WIN_COUNT);
 
+  // Serial.println(correlationThresh);
+
   // WIP, do stuff if correlation is positive...
   if (correlationThresh >= CORRELATION_THRESH) {
-    Serial.println("positive correlation");
+    // Serial.println(correlationThresh);
+    correlationCount += 1;
+    lastCorrelationTime = micros();
+  }
+
+  if (micros() - lastCorrelationTime > 1000000) { correlationCount = 0; }
+  
+  if (correlationCount == 64) {
+    // Serial.println("positive correlation");
+    // stop audio sampling
+    p.stopAudio();
+
+    // write detection data
+    p.Hypnos_3VR_ON();
+    Wire.begin();
+    char date[] = "YYMMDD-hh:mm:ss";
+    char buf[32] = { 0 };
+    char buf2=[32] = { 0 };
+    p.RTCWrap.getDateTime().toString(date);
+    Wire.end();
+    // creating directory with date YYMMDD
+    strncpy(buf, date, 6);
+    p.SDCard.begin();
+    SD.mkdir(buf);
+    // creating another directory with time hhmmss
+    buf[6] = '/';
+    buf[7] = date[7];
+    buf[8] = date[8];
+    buf[9] = date[10];
+    buf[10] = date[11];
+    buf[11] = date[13];
+    buf[12] = date[14];
+    SD.mkdir(buf);
+    // storing directory in temp buffer
+    strcpy(buf2, buf);
+    // file for processed frequencies buffer
+    strcat(buf, "/F.txt");
+    // write processed frequencies buffer to F.txt
+    if (!p.SDCard.openFile(buf, FILE_WRITE)) Serial.println("openFile() error");
+    else {
+      p.writeCircularBufferToFile(&processedFreqsBuffer);
+      p.SDCard.closeFile();
+      processedFreqsBuffer.clearBuffer();
+      rawFreqsBuffer.clearBuffer();
+    }
+    p.SDCard.end();
+    p.Hypnos_3VR_OFF();
+
+    // processedFreqsBuffer.clearBuffer();
+    // rawFreqsBuffer.clearBuffer();
+
+    // restart audio sampling
+    p.startAudioInput();
+
+    correlationCount = 0;
   }
 }
