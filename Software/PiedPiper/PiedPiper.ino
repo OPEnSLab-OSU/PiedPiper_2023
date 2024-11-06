@@ -7,7 +7,7 @@
 char settingsFilename[] = "SETTINGS.txt";   // settings filename (loaded from SD card)
 
 // detection algorithm settings
-#define CORRELATION_THRESH 0.91
+#define CORRELATION_THRESH 0.92
 #define NOISE_REMOVAL_SIZE 8
 #define NOISE_REMOVAL_THRESH 1.5 
 #define TIME_AVERAGING 4    // time domain smoothing size / length of raw frequency buffer
@@ -36,7 +36,6 @@ float vImag[FFT_WINDOW_SIZE];
 
 // scratch pad arrays
 uint16_t scratch[FFT_WINDOW_SIZE_BY2];
-uint16_t scratch2[FFT_WINDOW_SIZE_BY2];
 
 PiedPiperMonitor p = PiedPiperMonitor(); // Pied Piper Monitor object (includes camera, digital pot, temperature sensor)
 
@@ -155,7 +154,7 @@ void loop() {
   FFT(vReal, vImag, FFT_WINDOW_SIZE);
 
   // stochastic noise removal
-  AlphaTrimming<float>(vReal, vImag, FFT_WINDOW_SIZE_BY2, NOISE_REMOVAL_SIZE, NOISE_REMOVAL_THRESH);
+  AlphaTrimming<float>(vReal, vImag, FFT_WINDOW_SIZE, NOISE_REMOVAL_SIZE, NOISE_REMOVAL_THRESH);
 
   // copy results to temporary buffer
   for (int i = 0; i < FFT_WINDOW_SIZE_BY2; i++) {
@@ -166,16 +165,16 @@ void loop() {
   rawFreqsBuffer.pushData(scratch);
 
   // time smoothing on data
-  TimeSmoothing<uint16_t>((uint16_t *)rawFreqs, scratch, FFT_WINDOW_SIZE_BY2, TIME_AVERAGING);
+  TimeSmoothing<uint16_t>((uint16_t *)rawFreqs, scratch, FFT_WINDOW_SIZE, TIME_AVERAGING);
 
   // smoothing frequency domain of time smoothed data
-  FrequencySmoothing<uint16_t>(scratch, scratch2, FFT_WINDOW_SIZE, FREQ_SMOOTHING);
+  FrequencySmoothing<uint16_t>(scratch, samples, FFT_WINDOW_SIZE, FREQ_SMOOTHING);
 
   // store time/frequency smoothed data to processed data buffer
   for (int i = 0; i < FFT_WINDOW_SIZE_BY2; i++) {
-    scratch2[i] = uint16_t(round(scratch2[i] * FREQ_WIDTH));
+    samples[i] = uint16_t(round(samples[i] * FREQ_WIDTH));
   }
-  processedFreqsBuffer.pushData(scratch2);
+  processedFreqsBuffer.pushData(samples);
 
   // correlation with processed data and template
   correlationThresh = correlation.correlate((uint16_t *)processedFreqs, processedFreqsBuffer.getCurrentIndex(), FREQ_WIN_COUNT);
