@@ -192,7 +192,6 @@ class CrossCorrelation
         uint16_t *templatePtr;
 
         uint32_t templateSqrtSumSq;
-        double templateSqrtSumSqF;
 
         uint16_t numRows;
         uint16_t numCols;

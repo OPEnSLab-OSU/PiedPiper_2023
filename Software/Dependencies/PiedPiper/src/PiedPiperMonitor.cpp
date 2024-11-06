@@ -10,14 +10,14 @@ void PiedPiperMonitor::init() {
 }
 
 void PiedPiperMonitor::frequencyResponse() {
-    char outFile[] = "FR0.txt";
-    char outFile2[] = "DSR0.txt";
-    float _temp[FFT_WINDOW_SIZE];
-    float _temp2[FFT_WINDOW_SIZE];
+    char outFile[] = "CALTD.txt";
+    char outFile2[] = "CALFD.txt";
+    uint16_t samples[FFT_WINDOW_SIZE];
+    float vReal[FFT_WINDOW_SIZE];
+    float vImag[FFT_WINDOW_SIZE];
 
     for (uint16_t i = 0; i < FFT_WINDOW_SIZE; i++) {
         PLAYBACK_FILE[i] = DAC_MID;
-        _temp2[i] = 0;
     }
     PLAYBACK_FILE[FFT_WINDOW_SIZE_BY2] = DAC_MAX;
 
@@ -29,24 +29,29 @@ void PiedPiperMonitor::frequencyResponse() {
 
     startAudioInputAndOutput();
 
-    while (!audioInputBufferFull(_temp));
+    while (!audioInputBufferFull(samples));
 
     stopAudio();
 
-    SDCard.openFile(outFile2, FILE_WRITE);
-    writeArrayToFile<float>(_temp, FFT_WINDOW_SIZE);
+    for (int i = 0; i < FFT_WINDOW_SIZE; i++) {
+        vReal[i] = samples[i];
+        vImag[i] = 0;
+    }
+
+    SDCard.openFile(outFile, FILE_WRITE);
+    writeArrayToFile<uint16_t>(samples, FFT_WINDOW_SIZE);
     SDCard.closeFile();
 
     analogWrite(PIN_AUD_OUT, 0);
 
-    FFT(_temp, _temp2, FFT_WINDOW_SIZE);
+    FFT(vReal, vImag, FFT_WINDOW_SIZE);
 
     for (int i = 0; i < FFT_WINDOW_SIZE_BY2; i++) {
-        _temp[i] *= WINDOW_SIZE / float(SAMPLE_RATE);
+        vReal[i] *= FREQ_WIDTH;
     }
 
-    SDCard.openFile(outFile, FILE_WRITE);
-    writeArrayToFile<float>(_temp, FFT_WINDOW_SIZE_BY2);
+    SDCard.openFile(outFile2, FILE_WRITE);
+    writeArrayToFile<float>(vReal, FFT_WINDOW_SIZE_BY2);
     SDCard.closeFile();
 
     
@@ -58,7 +63,7 @@ void PiedPiperMonitor::calibrate(uint16_t calibrationValue, uint16_t threshold) 
     uint16_t _calValLow, _calValHigh, _nextPotValueBy2, _windowCount, i;
     int16_t _nextPotValue, _lastPotValue;
     uint16_t _max;
-    float _temp[FFT_WINDOW_SIZE];
+    uint16_t _temp[FFT_WINDOW_SIZE];
 
     _calValLow = calibrationValue - threshold;
     _calValHigh = calibrationValue + threshold;

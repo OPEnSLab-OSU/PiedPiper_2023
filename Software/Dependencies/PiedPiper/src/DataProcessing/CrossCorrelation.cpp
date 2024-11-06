@@ -17,7 +17,7 @@ CrossCorrelation::CrossCorrelation(uint16_t sampleRate, uint16_t windowSize) {
 void CrossCorrelation::computeTemplate() {
     this->templateSqrtSumSq = 0;
 
-    uint32_t _sumSq = 0;
+    uint64_t _sumSq = 0;
     uint16_t _templateValue = 0;
     uint16_t t, f;
 
@@ -28,7 +28,7 @@ void CrossCorrelation::computeTemplate() {
             _sumSq += _templateValue * _templateValue;
         }
     }
-    this->templateSqrtSumSq = sqrt(_sumSq);
+    this->templateSqrtSumSq = sqrtl(_sumSq);
 }
 
 
@@ -41,11 +41,10 @@ void CrossCorrelation::setTemplate(uint16_t *input, uint16_t numRows, uint16_t n
     this->frequencyIndexHigh = round(frequencyRangeHigh * frequencyWidth);
 
     this->computeTemplate();
-    Serial.println(templateSqrtSumSq);
 }
 
 float CrossCorrelation::correlate(uint16_t *input, uint16_t inputLatestWindowIndex, uint16_t inputTotalWindows) {
-    uint32_t _inputSqrtSumSq = 0;
+    uint64_t _inputSqrtSumSq = 0;
     uint16_t _inputValue, _templateValue;
 
     // cross correlation introduces a delay depending on the length of template, to solve this...
@@ -69,14 +68,13 @@ float CrossCorrelation::correlate(uint16_t *input, uint16_t inputLatestWindowInd
     }
 
     // computing product of square root of sum squared of template and input
-    _inputSqrtSumSq = sqrt(_inputSqrtSumSq);
-    _inputSqrtSumSq = _inputSqrtSumSq > 0 ? _inputSqrtSumSq * this->templateSqrtSumSq : this->templateSqrtSumSq;
+    _inputSqrtSumSq = sqrtl(_inputSqrtSumSq) * this->templateSqrtSumSq;
     // Serial.println(_inputSqrtSumSq);
     // computing inverse of product (to reduce use of division)
-    float _inverseSqrtSumSq = 1.0 / _inputSqrtSumSq;
+    double _inverseSqrtSumSq = _inputSqrtSumSq > 0 ? 1.0 / _inputSqrtSumSq : 1.0 / templateSqrtSumSq;
 
     // computing dot product and correlation coefficient
-    float _correlationCoefficient = 0.0;
+    double _correlationCoefficient = 0.0;
 
     _tempInputWindowIndex = _inputWindowIndex;
     

@@ -10,6 +10,7 @@ void PiedPiperBase::init() {
     this->calculateDownsampleSincFilterTable();
     this->calculateUpsampleSincFilterTable();
     this->TimerInterrupt.initialize();
+    delay(1000);
 }
 
 void PiedPiperBase::configurePins(void) {
@@ -122,10 +123,13 @@ bool PiedPiperBase::loadTemplate(char *filename, uint16_t *bufferPtr, uint16_t t
 
     int t, f;
 
+    float sample;
+
     while(SDCard.data.available()) {
         for (t = 0; t < templateLength; t++) {
             for (f = 0; f < FFT_WINDOW_SIZE_BY2; f++) {
-                *((bufferPtr + f) + t * FFT_WINDOW_SIZE_BY2) = uint16_t(round(SDCard.data.readStringUntil('\n').toFloat()));
+                sample = SDCard.data.readStringUntil('\n').toFloat();
+                *((bufferPtr + f) + t * FFT_WINDOW_SIZE_BY2) = uint16_t(round(sample * FREQ_WIDTH));
             }
         }
     }
