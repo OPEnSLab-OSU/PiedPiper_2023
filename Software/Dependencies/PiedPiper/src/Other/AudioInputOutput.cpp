@@ -172,7 +172,7 @@ void PiedPiperBase::OutputSample(void) {
     nextOutputSample = max(0, min(DAC_MAX, int(round(filteredValue))));
 }
 
-bool PiedPiperBase::audioInputBufferFull(float *bufferPtr) {
+bool PiedPiperBase::audioInputBufferFull(uint16_t *bufferPtr) {
     if (!(AUD_IN_BUFFER_IDX < FFT_WINDOW_SIZE)) {
         for (int i = 0; i < FFT_WINDOW_SIZE; i++) {
             bufferPtr[i] = AUD_IN_BUFFER[i];

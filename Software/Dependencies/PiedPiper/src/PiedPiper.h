@@ -22,6 +22,8 @@ const uint16_t FFT_WINDOW_SIZE_BY2 = FFT_WINDOW_SIZE >> 1;
 const uint16_t FFT_SAMPLE_RATE = SAMPLE_RATE / AUD_IN_DOWNSAMPLE_RATIO;
 const uint16_t AUD_OUT_SAMPLE_RATE = SAMPLE_RATE * AUD_OUT_UPSAMPLE_RATIO;
 
+const float FREQ_WIDTH = float(FFT_WINDOW_SIZE) / FFT_SAMPLE_RATE;
+
 const uint16_t AUD_IN_SAMPLE_DELAY_TIME = 1000000 / SAMPLE_RATE;
 const uint16_t AUD_OUT_SAMPLE_DELAY_TIME = 1000000 / AUD_OUT_SAMPLE_RATE;
 
@@ -115,7 +117,7 @@ class PiedPiperBase
             }
         };
 
-        static bool audioInputBufferFull(float *bufferPtr);
+        static bool audioInputBufferFull(uint16_t *bufferPtr);
 };
 
 /* 

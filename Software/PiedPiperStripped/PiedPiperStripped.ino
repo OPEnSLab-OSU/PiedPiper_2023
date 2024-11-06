@@ -27,11 +27,11 @@ void setup() {
       Serial.println("SD card cannot be initialized");
       p.initializationFail();
     } else {
-      p.SDCard.begin();
-      if (!p.loadSettings(settingsFilename)) Serial.println("loadSettings() error");
-      if (!p.loadSound(p.playbackFilename)) Serial.println("loadSound() error");
-      if (!p.loadOperationTimes(p.operationTimesFilename)) Serial.println("loadOperationTimes() error");
-      p.SDCard.end();
+        p.SDCard.begin();
+        if (!p.loadSettings(settingsFilename)) Serial.println("loadSettings() error");
+        if (!p.loadSound(p.playbackFilename)) Serial.println("loadSound() error");
+        if (!p.loadOperationTimes(p.operationTimesFilename)) Serial.println("loadOperationTimes() error");
+        p.SDCard.end();
       }
 
 
