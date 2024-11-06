@@ -1,0 +1,4 @@
+calibration: BMSB_CAL.PAD
+playback: BMSB.PAD
+template: BMSB.txt
+operation: PBINT.txt

@@ -19,6 +19,7 @@ void TimerInterruptController::attachTimerInterrupt(const unsigned long interval
 
 void TimerInterruptController::detachTimerInterrupt() {
     SAMPLING_TIMER.detachInterrupt();
+    SAMPLING_TIMER.restartTimer();
 }
 
 void TimerInterruptController::blankFunction() {

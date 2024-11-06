@@ -125,7 +125,7 @@ bool PiedPiperBase::loadTemplate(char *filename, uint16_t *bufferPtr, uint16_t t
     while(SDCard.data.available()) {
         for (t = 0; t < templateLength; t++) {
             for (f = 0; f < FFT_WINDOW_SIZE_BY2; f++) {
-                *((bufferPtr + f) + t * FFT_WINDOW_SIZE_BY2) = SDCard.data.readStringUntil('\n').toInt();
+                *((bufferPtr + f) + t * FFT_WINDOW_SIZE_BY2) = uint16_t(round(SDCard.data.readStringUntil('\n').toFloat()));
             }
         }
     }

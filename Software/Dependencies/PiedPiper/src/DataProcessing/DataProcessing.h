@@ -32,7 +32,7 @@ void TimeSmoothing(T *input, T *output, uint16_t windowSize, uint16_t numWindows
         sum = 0;
         output[freq] = 0;
         for (time = 0; time < numWindows; time++) {
-            sum += *((input + freq) + time * numWindows);
+            sum += *(input + freq + time * numWindows);
         }
         output[freq] = sum * _numWindows;
     }   
@@ -139,7 +139,7 @@ class CircularBuffer
             this->numCols = 0;
         };
 
-        void setBuffer(T *bufferPtr, uint16_t numRows, uint16_t numColumns) {
+        void setBuffer(T *bufferPtr, uint16_t numRows, uint16_t numCols) {
             this->bufferPtr = bufferPtr;
 
             this->numRows = numRows;
@@ -155,7 +155,7 @@ class CircularBuffer
             if (this->bufferIndex == this->numCols) this->bufferIndex = 0;
 
             for (int i = 0; i < this->numRows; i++) {
-                *((this->bufferPtr + i) + this->numRows *  this->bufferIndex) = data[i];
+                *(this->bufferPtr + i + this->numRows * this->bufferIndex) = data[i];
             }
         };
         
@@ -173,7 +173,7 @@ class CircularBuffer
         void clearBuffer(void) {
             for (int t = 0; t < this->numCols; t++) {
                 for (int f = 0; f < this->numRows; f++) {
-                    *((this->bufferPtr + f) + t * this->numRows) = 0;
+                    *(this->bufferPtr + f + t * this->numRows) = 0;
                 }
             }
             this->bufferIndex = 0;
@@ -192,12 +192,14 @@ class CrossCorrelation
         uint16_t *templatePtr;
 
         uint32_t templateSqrtSumSq;
+        double templateSqrtSumSqF;
 
         uint16_t numRows;
         uint16_t numCols;
 
         uint16_t sampleRate;
         uint16_t windowSize;
+        float frequencyWidth;
         uint16_t frequencyIndexLow;
         uint16_t frequencyIndexHigh;
 

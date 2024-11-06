@@ -144,6 +144,8 @@ class PiedPiperMonitor : public PiedPiperBase
 
         void init();
 
+        void frequencyResponse();
+
         void calibrate(uint16_t calibrationValue, uint16_t threshold);
 
 
