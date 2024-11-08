@@ -7,11 +7,13 @@
 char settingsFilename[] = "SETTINGS.txt";   // settings filename (loaded from SD card)
 
 // detection algorithm settings
-#define CORRELATION_THRESH 0.92
-#define NOISE_REMOVAL_SIZE 8
-#define NOISE_REMOVAL_THRESH 1.5 
-#define TIME_AVERAGING 4    // time domain smoothing size / length of raw frequency buffer
-#define FREQ_SMOOTHING 4    // frequency domain smoothing size
+#define CORRELATION_THRESH 0.90           // positive correlation threshold
+#define CORRELATION_COUNT 8               // number of positive correlations to be considered a detection
+#define CORRELATION_MAX_INTERVAL 2000000  // maximum time between positive correlations (in microseconds) before correlation count is reset
+#define NOISE_REMOVAL_SIZE 8              // number of adjacent samples to use for computing sample deviation
+#define NOISE_REMOVAL_THRESH 1.0          // minumum sample deviation (samples below this value are considered noise)
+#define TIME_SMOOTHING 2                  // time domain smoothing size of raw frequency buffer
+#define FREQ_SMOOTHING 2                  // frequency domain smoothing size
 
 // preamp calibration values (audio input circuit gain is adjusted so that the maximum value read from ADC is in this range:
 // [PREAMP_CALIBRATION - PREAMP_CALIBRATION_THESH, PREAMP_CALIBRATION + PREAMP_CALIBRATION_THESH]
@@ -27,25 +29,27 @@ const uint16_t FREQ_WIN_COUNT = REC_TIME * FFT_SAMPLE_RATE / FFT_WINDOW_SIZE; //
 uint16_t rawSamples[FFT_WINDOW_SIZE][FREQ_WIN_COUNT];
 uint16_t correlationTemplate[FFT_WINDOW_SIZE_BY2][TEMPLATE_LENGTH]; // buffer for template data
 uint16_t processedFreqs[FFT_WINDOW_SIZE_BY2][FREQ_WIN_COUNT];       // buffer for processed frequency data
-uint16_t rawFreqs[FFT_WINDOW_SIZE_BY2][TIME_AVERAGING];             // buffer for raw frequency data
+uint16_t rawFreqs[FFT_WINDOW_SIZE_BY2][TIME_SMOOTHING];             // buffer for raw frequency data
 
-// buffers for FFT
-uint16_t samples[FFT_WINDOW_SIZE];
+// buffers for newly recorded samples and FFT
 float vReal[FFT_WINDOW_SIZE];
 float vImag[FFT_WINDOW_SIZE];
 
 // scratch pad arrays
+uint16_t samples[FFT_WINDOW_SIZE];
 uint16_t scratch[FFT_WINDOW_SIZE_BY2];
 
 PiedPiperMonitor p = PiedPiperMonitor(); // Pied Piper Monitor object (includes camera, digital pot, temperature sensor)
 
-CircularBuffer<uint16_t> rawSamplesBuffer = CircularBuffer<uint16_t>();
-CircularBuffer<uint16_t> rawFreqsBuffer = CircularBuffer<uint16_t>();       // circular buffer for raw frequency buffer
-CircularBuffer<uint16_t> processedFreqsBuffer = CircularBuffer<uint16_t>(); // circular buffer for processed frequency buffer
+CircularBuffer<uint16_t> rawSamplesBuffer = CircularBuffer<uint16_t>();     // circular buffer for raw samples
+CircularBuffer<uint16_t> rawFreqsBuffer = CircularBuffer<uint16_t>();       // circular buffer for raw frequency data
+CircularBuffer<uint16_t> processedFreqsBuffer = CircularBuffer<uint16_t>(); // circular buffer for processed frequency data
 
 CrossCorrelation correlation = CrossCorrelation(FFT_SAMPLE_RATE, FFT_WINDOW_SIZE);
 
-float correlationThresh = 0.0;
+float correlationCoefficient = 0.0;
+float averagedCorrelationCoefficient[CORRELATION_COUNT];
+
 uint16_t correlationCount = 0;
 uint32_t lastCorrelationTime = 0;
 
@@ -102,24 +106,18 @@ void setup() {
 
   // set circular buffers and template
   rawSamplesBuffer.setBuffer((uint16_t *)rawSamples, FFT_WINDOW_SIZE, FREQ_WIN_COUNT);
-  rawFreqsBuffer.setBuffer((uint16_t *)rawFreqs, FFT_WINDOW_SIZE_BY2, TIME_AVERAGING);
+  rawFreqsBuffer.setBuffer((uint16_t *)rawFreqs, FFT_WINDOW_SIZE_BY2, TIME_SMOOTHING);
   processedFreqsBuffer.setBuffer((uint16_t *)processedFreqs, FFT_WINDOW_SIZE_BY2, FREQ_WIN_COUNT);
   correlation.setTemplate((uint16_t *)correlationTemplate, FFT_WINDOW_SIZE_BY2, TEMPLATE_LENGTH, 50, 90);
 
-  // perform calibration (set digital pot) 
-
+  // perform calibration (set pre-amp gain) 
   p.amp.powerOn();
-
   // p.frequencyResponse();
-
   if (!p.loadSound(p.calibrationFilename)) Serial.println("loadSound() error");
 
   //p.calibrate(PREAMP_CALIBRATION, PREAMP_CALIBRATION_THRESH);
 
-  Serial.println("calibration complete");
-
   p.amp.powerOff();
-
   p.Hypnos_5VR_OFF();
 
   // load playback sound
@@ -165,7 +163,7 @@ void loop() {
   rawFreqsBuffer.pushData(scratch);
 
   // time smoothing on data
-  TimeSmoothing<uint16_t>((uint16_t *)rawFreqs, scratch, FFT_WINDOW_SIZE, TIME_AVERAGING);
+  TimeSmoothing<uint16_t>((uint16_t *)rawFreqs, scratch, FFT_WINDOW_SIZE, TIME_SMOOTHING);
 
   // smoothing frequency domain of time smoothed data
   FrequencySmoothing<uint16_t>(scratch, samples, FFT_WINDOW_SIZE, FREQ_SMOOTHING);
@@ -177,73 +175,116 @@ void loop() {
   processedFreqsBuffer.pushData(samples);
 
   // correlation with processed data and template
-  correlationThresh = correlation.correlate((uint16_t *)processedFreqs, processedFreqsBuffer.getCurrentIndex(), FREQ_WIN_COUNT);
-
-  //Serial.println(correlationThresh);
+  correlationCoefficient = correlation.correlate((uint16_t *)processedFreqs, processedFreqsBuffer.getCurrentIndex(), FREQ_WIN_COUNT);
 
   // WIP, do stuff if correlation is positive...
-  if (correlationThresh >= CORRELATION_THRESH) {
+  if (correlationCoefficient >= CORRELATION_THRESH) {
+    // reset correlation count if positive correlatioon didn't occur within CORRELATION_MAX_INTERVAL
+    if (micros() - lastCorrelationTime > CORRELATION_MAX_INTERVAL) correlationCount = 0;
+    averagedCorrelationCoefficient[correlationCount] = correlationCoefficient;
     correlationCount += 1;
     lastCorrelationTime = micros();
   }
-
-  if (micros() - lastCorrelationTime > 2000000) { correlationCount = 0; }
   
-  if (correlationCount == 16) {
-    //Serial.println("positive correlation");
+  if (correlationCount == CORRELATION_COUNT) {
     // stop audio sampling
     p.stopAudio();
 
-    correlationCount = 0;
+    Serial.println("Positive correlation");
 
-    Serial.println(correlationThresh);
+    correlationCount = 0;
 
     // write detection data (structure: YYMMDD/hhmmss/)
     p.Hypnos_3VR_ON();
     Wire.begin();
-    char date[] = "YYMMDD-hh:mm:ss";
-    char buf[32] = { 0 };
-    char buf2[32] = { 0 };
+    char date[] = "YYYYMMDD-hh:mm:ss";
+    char buf[64] = { 0 };
+    char buf2[64] = { 0 };
     p.RTCWrap.getDateTime().toString(date);
+    Serial.println(date);
     Wire.end();
 
-    // creating directory with date YYMMDD
-    strncpy(buf, date, 6);
+    strcat(buf, "/DATA/");
 
     p.SDCard.begin();
+    // create DATA directory if it does not exist
+    if (!SD.exists(buf)) SD.mkdir(buf);
+    
+    // creating directory with date YYMMDD
+    strncat(buf + 6, date, 8);
 
     SD.mkdir(buf);
 
     // creating another directory with time hhmmss
-    buf[6] = '/';
-    buf[7] = date[7];
-    buf[8] = date[8];
-    buf[9] = date[10];
-    buf[10] = date[11];
-    buf[11] = date[13];
-    buf[12] = date[14];
+    strcat(buf, "/");
+    strncat(buf, date + 9, 2);
+    strncat(buf, date + 12, 2);
+    strncat(buf, date + 15, 2);
     SD.mkdir(buf);
+
     // storing directory in temp buffer
     strcpy(buf2, buf);
     // file for processed frequencies buffer
-    strcat(buf, "/FD.txt");
+    strcat(buf, "/PFD.TXT");
 
-    // write processed frequencies buffer to FD.txt
+    // write processed frequencies buffer to PFD.txt
     if (!p.SDCard.openFile(buf, FILE_WRITE)) Serial.println("openFile() error");
     else {
       p.writeCircularBufferToFile(&processedFreqsBuffer);
       p.SDCard.closeFile();
     }
+
     // file for raw samples
     strcpy(buf, buf2);
-    strcat(buf, "/TD.txt");
+    strcat(buf, "/RAW.TXT");
 
-    // write raw samples buffer to TD.txt
+    // Serial.println(buf);
+
+    // write raw samples buffer to RAW.txt
     if (!p.SDCard.openFile(buf, FILE_WRITE)) Serial.println("openFile() error");
     else {
       p.writeCircularBufferToFile(&rawSamplesBuffer);
       p.SDCard.closeFile();
     }
+
+    // store details of detection to DETS.txt
+    strcpy(buf, buf2);
+    strcat(buf, "/DETS.TXT");
+    if (!p.SDCard.openFile(buf, FILE_WRITE)) Serial.println("openFile() error");
+    else {
+      correlationCoefficient = 0;
+      for (int i = 0; i < CORRELATION_COUNT; i++) {
+        correlationCoefficient += averagedCorrelationCoefficient[i];
+      }
+      correlationCoefficient /= CORRELATION_COUNT;
+      p.SDCard.data.print(date);
+      p.SDCard.data.print(" ");
+      p.SDCard.data.print(correlationCoefficient, 3);
+      // TODO: add temperature/humidity data here... (consider reading temp sensor data earlier, after reading time from RTC)
+
+      // storing detection algorithm settings on next line
+      p.SDCard.data.println();
+      p.SDCard.data.print(FFT_SAMPLE_RATE);
+      p.SDCard.data.print(" ");
+      p.SDCard.data.print(FFT_WINDOW_SIZE);
+      p.SDCard.data.print(" ");
+      p.SDCard.data.print(NOISE_REMOVAL_SIZE);
+      p.SDCard.data.print(" ");
+      p.SDCard.data.print(NOISE_REMOVAL_THRESH);
+      p.SDCard.data.print(" ");
+      p.SDCard.data.print(TIME_SMOOTHING);
+      p.SDCard.data.print(" ");
+      p.SDCard.data.println(FREQ_SMOOTHING);
+      p.SDCard.closeFile();
+    }
+
+    Serial.println(correlationCoefficient);
+    
+    // TODO: open file for storing photo, call camera.takePhoto(&p.SDCard.data) after opening file...
+    // Hints: 
+    //    - use buf2 to form path to photo file...
+    //    - make sure to turn on Hypnos 5VR before taking photo
+
 
     p.SDCard.end();
     p.Hypnos_3VR_OFF();
@@ -252,6 +293,13 @@ void loop() {
     rawSamplesBuffer.clearBuffer();
     rawFreqsBuffer.clearBuffer();
     processedFreqsBuffer.clearBuffer();
+
+    // perform playback...
+    // p.amp.powerOn();
+    // p.Hypnos_5VR_ON();
+    // p.performPlayback();
+    // p.amp.powerOff();
+    // p.Hypnos_5VR_OFF();
 
     // restart audio sampling
     p.startAudioInput();
