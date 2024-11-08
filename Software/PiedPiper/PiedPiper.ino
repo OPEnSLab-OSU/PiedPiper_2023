@@ -103,6 +103,7 @@ void setup() {
 
   // if current time is outside of operation interval, go to sleep
   // if (!trapActive) p.SleepControl.goToSleep(OFF);
+  
 
   // set circular buffers and template
   rawSamplesBuffer.setBuffer((uint16_t *)rawSamples, FFT_WINDOW_SIZE, FREQ_WIN_COUNT);
@@ -137,10 +138,10 @@ void setup() {
 }
 
 void loop() {
-  // check if audio input buffer is filled (store samples to samples buffer)
+  // check if audio input buffer is filled (store samples to buffer, this is needed as sampling is done via interrupt timer)
   if (!p.audioInputBufferFull(samples)) return;
 
-  // store raw samples in buffer
+  // store raw samples in buffer (saving this data to SD card)
   rawSamplesBuffer.pushData(samples);
 
   // prepare arrays for FFT (copy samples to vReal and zero out vImag)
@@ -194,7 +195,7 @@ void loop() {
 
     correlationCount = 0;
 
-    // write detection data (structure: YYMMDD/hhmmss/)
+    // write detection data (structure: YYYYMMDD/hhmmss/ - )
     p.Hypnos_3VR_ON();
     Wire.begin();
     char date[] = "YYYYMMDD-hh:mm:ss";
@@ -295,11 +296,11 @@ void loop() {
     processedFreqsBuffer.clearBuffer();
 
     // perform playback...
-    // p.amp.powerOn();
-    // p.Hypnos_5VR_ON();
-    // p.performPlayback();
-    // p.amp.powerOff();
-    // p.Hypnos_5VR_OFF();
+    p.amp.powerOn();
+    p.Hypnos_5VR_ON();
+    p.performPlayback();
+    p.amp.powerOff();
+    p.Hypnos_5VR_OFF();
 
     // restart audio sampling
     p.startAudioInput();
