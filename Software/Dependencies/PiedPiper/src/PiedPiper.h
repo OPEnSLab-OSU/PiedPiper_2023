@@ -27,6 +27,13 @@ const float FREQ_WIDTH = float(FFT_WINDOW_SIZE) / FFT_SAMPLE_RATE;
 const uint16_t AUD_IN_SAMPLE_DELAY_TIME = 1000000 / SAMPLE_RATE;
 const uint16_t AUD_OUT_SAMPLE_DELAY_TIME = 1000000 / AUD_OUT_SAMPLE_RATE;
 
+enum AUD_STATE {
+    AUD_STOP = 0,
+    AUD_IN,
+    AUD_OUT,
+    AUD_IN_OUT
+};
+
 /*
     Pied Piper Base is the base class of Pied Piper Monitor and Playback. This class contains functions and data structures which are 
     relevant to all child classes, such as loading and writing data to and SD card, initializing timer interrupt for sampling
@@ -54,6 +61,8 @@ class PiedPiperBase
         static void RecordSample(void);
         static void OutputSample(void);
         static void RecordAndOutputSample(void);
+
+        static AUD_STATE audState;
 
     public:
     
@@ -118,6 +127,10 @@ class PiedPiperBase
         };
 
         static bool audioInputBufferFull(uint16_t *bufferPtr);
+
+        static void checkResetPlaybackFileIndex();
+
+        static AUD_STATE getAudState();
 };
 
 /* 
