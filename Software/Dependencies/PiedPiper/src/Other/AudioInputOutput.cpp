@@ -10,6 +10,8 @@ uint16_t PiedPiperBase::PLAYBACK_FILE_SAMPLE_COUNT;
 
 volatile uint16_t PiedPiperBase::PLAYBACK_FILE_BUFFER_IDX = 0;
 
+AUD_STATE PiedPiperBase::audState = AUD_STATE::AUD_STOP;
+
 // calculating sinc table sizes
 const int sincTableSizeDown = (2 * SINC_FILTER_DOWNSAMPLE_ZERO_X + 1) * AUD_IN_DOWNSAMPLE_RATIO - AUD_IN_DOWNSAMPLE_RATIO + 1;
 const int sincTableSizeUp = (2 * SINC_FILTER_UPSAMPLE_ZERO_X + 1) * AUD_OUT_UPSAMPLE_RATIO - AUD_OUT_UPSAMPLE_RATIO + 1;
@@ -33,6 +35,10 @@ volatile float filteredValue = 0.0;
 volatile uint16_t nextOutputSample = 0;
 
 void PiedPiperBase::RESET_PLAYBACK_FILE_INDEX() { PLAYBACK_FILE_BUFFER_IDX = 0; }
+
+void PiedPiperBase::checkResetPlaybackFileIndex() {
+    if (PLAYBACK_FILE_BUFFER_IDX >= PLAYBACK_FILE_SAMPLE_COUNT) PLAYBACK_FILE_BUFFER_IDX = 0;
+}
 
 void PiedPiperBase::calculateDownsampleSincFilterTable(void) {
     int ratio = AUD_IN_DOWNSAMPLE_RATIO;
@@ -186,12 +192,19 @@ bool PiedPiperBase::audioInputBufferFull(uint16_t *bufferPtr) {
 
 void PiedPiperBase::startAudioInput() {
     TimerInterrupt.attachTimerInterrupt(AUD_IN_SAMPLE_DELAY_TIME, RecordSample);
+    audState = AUD_STATE::AUD_IN;
 }
 
 void PiedPiperBase::startAudioInputAndOutput() {
     TimerInterrupt.attachTimerInterrupt(AUD_OUT_SAMPLE_DELAY_TIME, RecordAndOutputSample);
+    audState = AUD_STATE::AUD_IN_OUT;
 }
 
 void PiedPiperBase::stopAudio() {
     TimerInterrupt.detachTimerInterrupt();
+    audState = AUD_STATE::AUD_STOP;
+}
+
+AUD_STATE PiedPiperBase::getAudState() {
+    return audState;
 }

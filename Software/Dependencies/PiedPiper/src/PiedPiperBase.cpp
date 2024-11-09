@@ -162,43 +162,15 @@ bool PiedPiperBase::loadOperationTimes(char *filename) {
 
     SDCard.closeFile();
 
-    // SD.end();
-    // digitalWrite(HYPNOS_3VR, HIGH);
-
-    // print playback intervals
-    // Serial.println("Printing operation hours...");
-    // for (int i = 0; i < numOperationTimes; i = i + 2) {
-    // Serial.printf("\t%02d:%02d - %02d:%02d\n", operationTimes[i].hour, operationTimes[i].minute, operationTimes[i + 1].hour, operationTimes[i + 1].minute);
-    // }
-    // Serial.println();
-
     return true;
 }
-
-// template <typename T>
-// void PiedPiperBase::writeArrayToFile(T *array, uint16_t arrayLength) {
-//     for (int i = 0; i < arrayLength; i++) {
-//         SDCard.data.println(array[i], DEC);
-//     }
-// }
-
-// template <typename T>
-// void PiedPiperBase::writeCircularBufferToFile(CircularBuffer<T> *buffer) {
-//     uint16_t _rows = buffer->getNumRows();
-//     uint16_t _cols = buffer->getNumCols();
-//     T *_column = 0;
-//     for (int i = 1; i <= _cols; i++) {
-//         _column = buffer->getData(i);
-//         for (int j = 0; j < _rows; j++) {
-//             SDCard.data.println(_column[j], DEC);
-//         }
-//     }
-// }
 
 void PiedPiperBase::performPlayback() {
     stopAudio();
 
     analogWrite(PIN_AUD_OUT, DAC_MID);
+    
+    audState = AUD_STATE::AUD_OUT;
     
     TimerInterrupt.attachTimerInterrupt(AUD_OUT_SAMPLE_DELAY_TIME, OutputSample);
 
