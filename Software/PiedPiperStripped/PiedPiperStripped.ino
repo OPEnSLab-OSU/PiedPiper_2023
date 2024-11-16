@@ -62,7 +62,7 @@ void setup() {
     p.initializationSuccess();
   
     // if current time is outside of operation interval, go to sleep
-    if (!performPlayback) p.SleepControl.goToSleep(OFF);
+    // if (!performPlayback) p.SleepControl.goToSleep(OFF);
 
     // otherwise playback sound until alarm resets MCU
     p.Hypnos_5VR_ON();

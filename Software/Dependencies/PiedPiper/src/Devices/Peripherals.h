@@ -143,7 +143,7 @@ class MCP465
         uint8_t decrementWiper(void);
 
         uint8_t writeWiperValue(uint16_t wiperValue);
-        uint16_t readWiperValue(void);
+        int16_t readWiperValue(void);
 
 };
 

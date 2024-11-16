@@ -14,6 +14,8 @@
  */
 void FFT(float *inputReal, float *inputImag, uint16_t windowSize);
 
+void iFFT(float *inputReal, float *inputImag, uint16_t windowSize);
+
 /*
  * TimeSmoothing(...) - smoothes a spectrogram by averaging through time
  * 
@@ -23,18 +25,18 @@ void FFT(float *inputReal, float *inputImag, uint16_t windowSize);
  * @param numWindows - number of windows in spectrogram
  */
 template <typename T>
-void TimeSmoothing(T *input, T *output, uint16_t windowSize, uint16_t numWindows) {
+void TimeSmoothing(T *input, T *output, uint16_t numRows, uint16_t numCols) {
     T sum = 0;
     uint16_t freq, time;
 
-    float _numWindows = 1.0 / numWindows;
-    for (freq = 0; freq < windowSize >> 1; freq++) {
+    float _numWindows = 1.0 / numCols;
+    for (freq = 0; freq < numRows; freq++) {
         sum = 0;
         output[freq] = 0;
-        for (time = 0; time < numWindows; time++) {
-            sum += *(input + freq + time * numWindows);
+        for (time = 0; time < numCols; time++) {
+            sum += *(input + freq + time * numCols);
         }
-        output[freq] = sum * _numWindows;
+        output[freq] = uint16_t(round(sum * _numWindows));
     }   
 };
 
@@ -47,17 +49,17 @@ void TimeSmoothing(T *input, T *output, uint16_t windowSize, uint16_t numWindows
  * @param smoothingSize - number of samples to use around sample for smoothing
  */
 template <typename T>
-void FrequencySmoothing(T *input, T *output, uint16_t windowSize, uint16_t smoothingSize) {
-    uint16_t freq, samp, startIdx, endIdx;
+void FrequencySmoothing(T *input, T *output, uint16_t numRows, uint16_t smoothingSize) {
+    uint16_t freq, samp, startIdx, endIdx;    
 
-    for (freq = 0; freq < windowSize >> 1; freq++) {
+    for (freq = 0; freq < numRows; freq++) {
         startIdx = max(0, freq - smoothingSize);
-        endIdx = min((windowSize >> 1) - 1, freq + smoothingSize);
+        endIdx = min(numRows - 1, freq + smoothingSize);
         output[freq] = 0;
         for (samp = startIdx; samp <= endIdx; samp++) {
             output[freq] += input[samp];
         }
-        output[freq] /= endIdx - startIdx;
+        output[freq] /= endIdx - startIdx + 1;
     }
 };
 
@@ -70,34 +72,35 @@ void FrequencySmoothing(T *input, T *output, uint16_t windowSize, uint16_t smoot
  * @param smoothingSize - number of samples to use around sample for computing standard deviation of sample
  */
 template <typename T>
-void AlphaTrimming(T *input, T *output, uint16_t windowSize, uint16_t smoothingSize, float deviationThreshold) {
+void AlphaTrimming(T *input, T *output, uint16_t numRows, uint16_t smoothingSize, float deviationThreshold) {
     uint16_t i, s, startIdx, endIdx, boundNumSamples;
-    float boundSum, boundAvg, boundStdDev;
+    float boundSum, boundAvg, boundStdDev, temp;
 
     // copy data to output array to use as scratchpad array
-    for (i = 0; i < windowSize >> 1; i++) {
+    for (i = 0; i < numRows; i++) {
         output[i] = input[i];
     }
 
-    for (i = 0; i < windowSize >> 1; i++) {
+    for (i = 0; i < numRows; i++) {
         // calculate lower and upper bounds based on smoothingSize
         startIdx = max(0, i - smoothingSize);
-        endIdx = min((windowSize >> 1) - 1, i + smoothingSize);
-        boundNumSamples = endIdx - startIdx;
+        endIdx = min((numRows) - 1, i + smoothingSize);
+        boundNumSamples = endIdx - startIdx + 1;
+        temp = 1.0 / boundNumSamples;
 
         // get average of magnitudes within lower and upper bound
         boundSum = 0;
         for (s = startIdx; s <= endIdx; s++) {
             boundSum += input[s];
         }
-        boundAvg = boundSum / boundNumSamples;
+        boundAvg = boundSum * temp;
 
         // get standard deviation of magnitudes within lower and upper bound
         boundStdDev = 0;
         for (s = startIdx; s <= endIdx; s++) {
             boundStdDev += pow(input[s] - boundAvg, 2);
         }
-        boundStdDev = sqrt(boundStdDev / boundNumSamples);
+        boundStdDev = sqrt(boundStdDev * temp);
 
         // check deviation of each sample within lower and upper bound. If sample deviation is greater than some threshold, 
         // replace sample in subtraction data with the average of the bound excluding this sample
@@ -109,7 +112,7 @@ void AlphaTrimming(T *input, T *output, uint16_t windowSize, uint16_t smoothingS
     }
 
     // subtraction of trimmed data from raw data
-    for (i = 0; i < windowSize >> 1; i++) {
+    for (i = 0; i < numRows; i++) {
         output[i] = input[i] - output[i];
     }
 };

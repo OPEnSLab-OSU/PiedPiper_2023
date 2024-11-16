@@ -10,8 +10,8 @@ void PiedPiperMonitor::init() {
 }
 
 void PiedPiperMonitor::frequencyResponse() {
-    char outFile[] = "CALTD.txt";
-    char outFile2[] = "CALFD.txt";
+    // char outFile[] = "CALTD.txt";
+    // char outFile2[] = "CALFD.txt";
     uint16_t samples[FFT_WINDOW_SIZE];
     float vReal[FFT_WINDOW_SIZE];
     float vImag[FFT_WINDOW_SIZE];
@@ -38,21 +38,21 @@ void PiedPiperMonitor::frequencyResponse() {
         vImag[i] = 0;
     }
 
-    SDCard.openFile(outFile, FILE_WRITE);
-    writeArrayToFile<uint16_t>(samples, FFT_WINDOW_SIZE);
-    SDCard.closeFile();
+    // SDCard.openFile(outFile, FILE_WRITE);
+    // writeArrayToFile<uint16_t>(samples, FFT_WINDOW_SIZE);
+    // SDCard.closeFile();
 
     analogWrite(PIN_AUD_OUT, 0);
 
     FFT(vReal, vImag, FFT_WINDOW_SIZE);
 
     for (int i = 0; i < FFT_WINDOW_SIZE_BY2; i++) {
-        vReal[i] *= FREQ_WIDTH;
+        vReal[i] = 1.0 / vReal[i];
     }
 
-    SDCard.openFile(outFile2, FILE_WRITE);
-    writeArrayToFile<float>(vReal, FFT_WINDOW_SIZE_BY2);
-    SDCard.closeFile();
+    // SDCard.openFile(outFile2, FILE_WRITE);
+    // writeArrayToFile<float>(vReal, FFT_WINDOW_SIZE_BY2);
+    // SDCard.closeFile();
 
     
 }
@@ -60,31 +60,36 @@ void PiedPiperMonitor::frequencyResponse() {
 void PiedPiperMonitor::calibrate(uint16_t calibrationValue, uint16_t threshold) {
 
     uint16_t _playbackNumWindows = round(PLAYBACK_FILE_SAMPLE_COUNT / WINDOW_SIZE);
-    uint16_t _calValLow, _calValHigh, _nextPotValueBy2, _windowCount, i;
-    int16_t _nextPotValue, _lastPotValue;
+    uint16_t _calValLow, _calValHigh, _windowCount, i;
+    int16_t _nextPotValue, _nextPotValueBy2, _lastPotValue;
     uint16_t _max;
     uint16_t _temp[FFT_WINDOW_SIZE];
 
     _calValLow = calibrationValue - threshold;
     _calValHigh = calibrationValue + threshold;
-    _nextPotValue = 0;
+    _nextPotValue = 256;
     _nextPotValueBy2 = 256;
     _windowCount = 0;
 
     analogWrite(PIN_AUD_OUT, 2048);
 
-    startAudioInputAndOutput();
+    delay(1000);
 
-    while (!audioInputBufferFull(_temp));
+    startAudioInput();
+
+    while (!audioInputBufferFull(_temp))
+        ;
+
+    stopAudio();
 
     while (1) {
 
         _max = 0;
         _windowCount = 0;
 
-        Serial.println(_nextPotValue);
-
         if (preAmp.writeWiperValue(_nextPotValue) > 0) Serial.println("writeWiperValue() error");
+
+        delay(500);
 
         RESET_PLAYBACK_FILE_INDEX();
 
@@ -103,9 +108,7 @@ void PiedPiperMonitor::calibrate(uint16_t calibrationValue, uint16_t threshold) 
 
         stopAudio();
 
-        analogWrite(PIN_AUD_OUT, 2048);
-
-        Serial.println(_max);
+        // analogWrite(PIN_AUD_OUT, 2048);
 
         _lastPotValue = _nextPotValue;
 
@@ -113,10 +116,16 @@ void PiedPiperMonitor::calibrate(uint16_t calibrationValue, uint16_t threshold) 
         _nextPotValueBy2 = _nextPotValueBy2 > 0 ? _nextPotValueBy2 : 1;
 
         if (_max > _calValHigh) _nextPotValue = _nextPotValue + _nextPotValueBy2;
-        else if (_max < _calValLow) _nextPotValue = _nextPotValue - _nextPotValueBy2;
+        else if (_max < _calValLow) _nextPotValue = _nextPotValue -  _nextPotValueBy2;
         else break;
 
         _nextPotValue = max(0, min(256, _nextPotValue));
+
+        // Serial.print("next wiper value: ");
+        // Serial.println(_nextPotValue);
+
+        Serial.print("readWiperValue(): ");
+        Serial.println(preAmp.readWiperValue());
 
         if (_nextPotValue == _lastPotValue) break;
 
