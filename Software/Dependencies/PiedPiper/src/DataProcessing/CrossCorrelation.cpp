@@ -17,11 +17,11 @@ CrossCorrelation::CrossCorrelation(uint16_t sampleRate, uint16_t windowSize) {
 void CrossCorrelation::computeTemplate() {
     this->templateSqrtSumSq = 0;
 
-    uint64_t _sumSq = 0;
+    uint32_t _sumSq = 0;
     uint16_t _templateValue = 0;
     uint16_t t, f;
 
-    // computing square root sum squared of template
+    // computing square root of the squared sum of the template spectrogram
     for (t = 0; t < numCols; t++) {
         for (f = this->frequencyIndexLow; f < this->frequencyIndexHigh; f++) {
             _templateValue = *(this->templatePtr + f + t * this->numRows);
@@ -37,14 +37,14 @@ void CrossCorrelation::setTemplate(uint16_t *input, uint16_t numRows, uint16_t n
     this->numRows = numRows;
     this->numCols = numCols;
 
-    this->frequencyIndexLow = round(frequencyRangeLow * frequencyWidth);
-    this->frequencyIndexHigh = round(frequencyRangeHigh * frequencyWidth);
+    this->frequencyIndexLow = floor(frequencyRangeLow * frequencyWidth);
+    this->frequencyIndexHigh = ceil(frequencyRangeHigh * frequencyWidth);
 
     this->computeTemplate();
 }
 
 float CrossCorrelation::correlate(uint16_t *input, uint16_t inputLatestWindowIndex, uint16_t inputTotalWindows) {
-    uint64_t _inputSqrtSumSq = 0;
+    uint32_t _inputSqrtSumSq = 0;
     uint16_t _inputValue, _templateValue;
 
     // cross correlation introduces a delay depending on the length of template, to solve this...
@@ -69,12 +69,15 @@ float CrossCorrelation::correlate(uint16_t *input, uint16_t inputLatestWindowInd
 
     // computing product of square root of sum squared of template and input
     _inputSqrtSumSq = sqrtl(_inputSqrtSumSq) * this->templateSqrtSumSq;
+    float _inverseSqrtSumSq = 1.0;
     // Serial.println(_inputSqrtSumSq);
     // computing inverse of product (to reduce use of division)
-    double _inverseSqrtSumSq = _inputSqrtSumSq > 0 ? 1.0 / _inputSqrtSumSq : 1.0 / templateSqrtSumSq;
+    if (_inputSqrtSumSq > 0) {
+        _inverseSqrtSumSq = 1.0 / _inputSqrtSumSq;
+    } else return 0.0;
 
     // computing dot product and correlation coefficient
-    double _correlationCoefficient = 0.0;
+    float _correlationCoefficient = 0.0;
 
     _tempInputWindowIndex = _inputWindowIndex;
     

@@ -24,6 +24,9 @@ void PiedPiperBase::configurePins(void) {
 
     analogReadResolution(ADC_RESOLUTION);
     analogWriteResolution(DAC_RESOLUTION);
+
+    analogRead(PIN_AUD_IN);
+    analogWrite(PIN_AUD_OUT, 0);
 }
 
 void PiedPiperBase::Hypnos_3VR_ON() { digitalWrite(PIN_HYPNOS_3VR, LOW); }
@@ -129,7 +132,7 @@ bool PiedPiperBase::loadTemplate(char *filename, uint16_t *bufferPtr, uint16_t t
         for (t = 0; t < templateLength; t++) {
             for (f = 0; f < FFT_WINDOW_SIZE_BY2; f++) {
                 sample = SDCard.data.readStringUntil('\n').toFloat();
-                *((bufferPtr + f) + t * FFT_WINDOW_SIZE_BY2) = uint16_t(round(sample * FREQ_WIDTH));
+                *(bufferPtr + f + t * FFT_WINDOW_SIZE_BY2) = uint16_t(round(sample));
             }
         }
     }

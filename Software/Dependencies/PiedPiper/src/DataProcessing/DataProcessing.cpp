@@ -8,3 +8,9 @@ void FFT(float *inputReal, float *inputImag, uint16_t windowSize) {
     fft.compute(inputReal, inputImag, windowSize, FFT_FORWARD);
     fft.complexToMagnitude(inputReal, inputImag, windowSize);
 }
+
+void iFFT(float *inputReal, float *inputImag, uint16_t windowSize) { 
+    fft.compute(inputReal, inputImag, windowSize, FFT_REVERSE);
+    // fft.complexToMagnitude(inputReal, inputImag, windowSize);
+    fft.windowing(inputReal, windowSize, FFT_WIN_TYP_HAMMING, FFT_REVERSE);
+}

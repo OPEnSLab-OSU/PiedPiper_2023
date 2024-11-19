@@ -28,12 +28,12 @@ uint8_t MCP465::decrementWiper(void) {
 
 uint8_t MCP465::writeWiperValue(uint16_t aValue) {
     Wire.beginTransmission(this->i2c_address);
-    Wire.write(MCP465_WRITE_WIPER_CMD);
-    Wire.write(aValue);
+    Wire.write(MCP465_WRITE_WIPER_CMD | (aValue >> 8));
+    Wire.write(aValue & 0xFF);
     return Wire.endTransmission();
 }
 
-uint16_t MCP465::readWiperValue(void) {
+int16_t MCP465::readWiperValue(void) {
     Wire.beginTransmission(this->i2c_address);
     Wire.write(MCP465_READ_WIPER_CMD);
     if (Wire.endTransmission() > 0) return -1;
