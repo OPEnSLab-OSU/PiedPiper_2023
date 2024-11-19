@@ -143,18 +143,14 @@ void setup() {
     Serial.println("Digital pot cannot be initialized");
     err |= ERR_PREAMP;
   }
-  if (!p.tempSensor.begin()) {
+  if (p.tempSensor.begin() != 0) {
     Serial.println("Temp sensor cannot be initialized");
     err |= ERR_TEMPSEN;
   }
   else {
-    // TODO - read temperature and humidity, you probably want to store these as global variables
+    // get temperature and humidity values
     temperatureC = p.tempSensor.getTemperatureC();
     humidity = p.tempSensor.getHumidityRH();
-    Serial.print("Temperature in C: ");
-    Serial.println(temperatureC);
-    Serial.print("Humidity: ");
-    Serial.println(humidity);
   }
 
   // check if camera can be initialized
@@ -164,7 +160,7 @@ void setup() {
   }
 
   // TODO - implement logAlive() function (notice how RTC and temp sensor just read the necassary data so you don't need to worry about reading those again just store readings as globals)
-  logAlive();
+  // logAlive();
 
   p.initializationSuccess();
 
@@ -248,22 +244,22 @@ void loop() {
   // correlation with processed data and template
   correlationCoefficient = correlation.correlate((uint16_t *)processedFreqs, processedFreqsBuffer.getCurrentIndex(), FREQ_WIN_COUNT);
 
-  Serial.println(correlationCoefficient);
+  // Serial.println(correlationCoefficient);
   // do stuff if correlation is positive...
-  if (correlationCoefficient >= CORRELATION_THRESH) {
-    // reset correlation count if positive correlatioon didn't occur within CORRELATION_MAX_INTERVAL
-    if (microsTime - lastCorrelationTime > CORRELATION_MAX_INTERVAL) correlationCount = 0;
-    averagedCorrelationCoefficient[correlationCount] = correlationCoefficient;
-    correlationCount += 1;
-    lastCorrelationTime = microsTime;
-  }
+  // if (correlationCoefficient >= CORRELATION_THRESH) {
+  //   // reset correlation count if positive correlatioon didn't occur within CORRELATION_MAX_INTERVAL
+  //   if (microsTime - lastCorrelationTime > CORRELATION_MAX_INTERVAL) correlationCount = 0;
+  //   averagedCorrelationCoefficient[correlationCount] = correlationCoefficient;
+  //   correlationCount += 1;
+  //   lastCorrelationTime = microsTime;
+  // }
   
   // if count of recent positive correlation is equal to CORRELATION_COUNT, consider this a positive detection
   if (correlationCount == CORRELATION_COUNT) {
     // stop audio sampling
     p.stopAudio();
 
-    Serial.println("Detection occurded!");
+    Serial.println("Detection occured!");
     Serial.println("Saving data to SD...");
 
     correlationCount = 0;
@@ -294,12 +290,12 @@ void loop() {
     p.Hypnos_5VR_ON();
     p.amp.powerOn();
 
-    // p.performPlayback();
+    p.performPlayback();
 
-    // p.amp.powerOff();
-    // p.Hypnos_5VR_OFF();
+    p.amp.powerOff();
+    p.Hypnos_5VR_OFF();
 
-    //p.startAudioInput();
+    p.startAudioInput();
     p.startAudioInputAndOutput();
   }
 
