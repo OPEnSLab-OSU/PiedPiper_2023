@@ -65,6 +65,9 @@ char date[] = "YYYYMMDD-hh:mm:ss";
 
 DateTime dt;
 
+float temperatureC = 0; // temperature in celsius
+float humidity = 0; // humidity 
+
 enum ERROR
 {
   ERR_RTC = 0x1,
@@ -146,6 +149,12 @@ void setup() {
   }
   else {
     // TODO - read temperature and humidity, you probably want to store these as global variables
+    temperatureC = p.tempSensor.getTemperatureC();
+    humidity = p.tempSensor.getHumidityRH();
+    Serial.print("Temperature in C: ");
+    Serial.println(temperatureC);
+    Serial.print("Humidity: ");
+    Serial.println(humidity);
   }
 
   // check if camera can be initialized
@@ -368,7 +377,11 @@ void saveDetection() {
     p.SDCard.data.print(correlationCoefficient, 3);
 
     // TODO: add temperature/humidity data here... (consider reading temp sensor data earlier, when reading time from RTC)
-
+    p.SDCard.data.print(temperatureC);
+    p.SDCard.data.print(" ");
+    p.SDCard.data.print(humidity);
+    p.SDCard.data.print(" ");
+    
     // storing detection algorithm settings on next line
     p.SDCard.data.println();
     p.SDCard.data.print(FFT_SAMPLE_RATE);
