@@ -194,7 +194,7 @@ void setup() {
   }
 
   // TODO - implement logAlive() function (notice how RTC and temp sensor just read the necassary data so you don't need to worry about reading those again just store readings as globals)
-  // logAlive();
+  logAlive();
 
   Serial.println("Pied Piper ready");
   p.initializationSuccess();
@@ -410,7 +410,7 @@ void saveDetection() {
     p.SDCard.data.print(" ");
     p.SDCard.data.print(correlationCoefficient, 3);
 
-    // TODO: add temperature/humidity data here... (consider reading temp sensor data earlier, when reading time from RTC)
+    // storing temperature and humidity data
     p.SDCard.data.print(temperatureC);
     p.SDCard.data.print(" ");
     p.SDCard.data.print(humidity);
@@ -444,7 +444,49 @@ void saveDetection() {
 //       in this format "YYYYDDMM-hh:mm:ss T H E" (T = temperature, H = humidity, E = err)
 //       if rtc is not alive log "YYYYDDMM-hh:mm:ss" instead of time
 //       if temperature sensor is not alive, log "T H" instead of temperature and humidity
+
 void logAlive() {
+  // File logFile = SD.open("LOG.TXT", FILE_WRITE); // Open LOG.TXT for writing
+  // if (!logFile) {
+  //     Serial.println("Error opening LOG.TXT for writing.");
+  //     return;
+  // }
+
+  //  // Check if RTC is alive
+  // if (err & ERR_RTC) {
+  //   // If RTC is not alive, just use a placeholder date
+  //   snprintf(date, sizeof(date), "YYYYDDMM-hh:mm:ss");
+  // } else {
+  //   // Normal RTC time formatting
+  //   snprintf(date, sizeof(date), "%04d%02d%02d-%02d:%02d:%02d",
+  //             dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(), dt.second());
+  // }
+  // // Write data to the log file
+  // logFile.print(date);
+  // logFile.print(", ");
+  // // Check if temperature sensor is alive
+  // if (err & ERR_TEMPSEN) {
+  //   // If temp sensor is not alive, log placeholders for temp and humidity
+  //   logFile.print("T, H");
+  // } 
+  // else {
+  //   // Normal temperature and humidity logging
+  //   logFile.print(temperatureC, 2); // Write temperature with 2 decimal precision
+  //   logFile.print(" °C, ");
+  //   logFile.print(humidity, 2);    // Write humidity with 2 decimal precision
+  //   logFile.print("%");
+  // }
+  // // Log the error code
+  // if (err) {
+  //   logFile.print(", 0x");
+  //   logFile.println(err, HEX);
+  // }
+  // logFile.println();
+  
+
+  // // Close the file to save changes
+  // logFile.close();
+  // Serial.println("Logged alive data to LOG.TXT successfully.");
   return;
 }
 
