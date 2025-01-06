@@ -20,7 +20,7 @@ void setup() {
     p.init();
 
     // turn on HYPNOS 3V rail
-    p.Hypnos_3VR_ON();
+    p.HYPNOS_3VR_ON();
 
     // check if SD can be initialized, if it can, load playback sound and operation times
     if (!p.SDCard.initialize()) {
@@ -57,15 +57,15 @@ void setup() {
     // end I2C, power off HYPNOS 3V rail
     Wire.end();
 
-    p.Hypnos_3VR_OFF();
+    p.HYPNOS_3VR_OFF();
 
     p.initializationSuccess();
   
     // if current time is outside of operation interval, go to sleep
-    // if (!performPlayback) p.SleepControl.goToSleep(OFF);
+    if (!performPlayback) p.SleepControl.goToSleep(OFF);
 
     // otherwise playback sound until alarm resets MCU
-    p.Hypnos_5VR_ON();
+    p.HYPNOS_5VR_ON();
 
     p.amp.powerOn();
 

@@ -53,6 +53,8 @@ float CrossCorrelation::correlate(uint16_t *input, uint16_t inputLatestWindowInd
 
     uint16_t t, f;
 
+    float _correlationCoefficient = 0.0;
+
     // computing square root sum squared of input
     uint16_t _tempInputWindowIndex = _inputWindowIndex;
     for (t = 0; t < this->numCols; t++) {
@@ -70,17 +72,13 @@ float CrossCorrelation::correlate(uint16_t *input, uint16_t inputLatestWindowInd
     // computing product of square root of sum squared of template and input
     _inputSqrtSumSq = sqrtl(_inputSqrtSumSq) * this->templateSqrtSumSq;
     float _inverseSqrtSumSq = 1.0;
-    // Serial.println(_inputSqrtSumSq);
+    
     // computing inverse of product (to reduce use of division)
-    if (_inputSqrtSumSq > 0) {
-        _inverseSqrtSumSq = 1.0 / _inputSqrtSumSq;
-    } else return 0.0;
+    if (_inputSqrtSumSq > 0) _inverseSqrtSumSq = 1.0 / _inputSqrtSumSq;
+    else return _correlationCoefficient;
 
     // computing dot product and correlation coefficient
-    float _correlationCoefficient = 0.0;
-
     _tempInputWindowIndex = _inputWindowIndex;
-    
     for (t = 0; t < this->numCols; t++) {
 
         _tempInputWindowIndex += 1;
@@ -92,10 +90,7 @@ float CrossCorrelation::correlate(uint16_t *input, uint16_t inputLatestWindowInd
             _templateValue = *(this->templatePtr + f + t * this->numRows);
             _correlationCoefficient += _inputValue * _templateValue * _inverseSqrtSumSq;
         }
-
     }
-
-    // Serial.println("b");
 
     return _correlationCoefficient;
 }

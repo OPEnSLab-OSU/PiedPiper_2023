@@ -8,7 +8,7 @@
   itself until the issue(s) have been resolved. The device relies heavily on the SD card as it contains all the necassary data needed for the trap to
   function.
 
-  The detection algorithm works by performing stochastic noise removal on the frequency domain - AlphaTrimming(), time domain smoothing - TimeSmoothing(),
+  The detection algorithm works by performing stochastic noise removal on the frequency domain - NoiseRemoval_ATM(), time domain smoothing - TimeSmoothing(),
   and frequency domain smootihng - FrequencySmoothing(). A specified duration of this processed data is stored in a buffer, which is then, using cross
   correlation, compared with a pre-recorded and pre-processed signal of the desired mating call (template signal) which is loaded from the SD card.
 
@@ -23,25 +23,27 @@
 */
 
 #include <PiedPiper.h>
-#include <float.h>
 
 char settingsFilename[] = "SETTINGS.txt";   // settings filename (loaded from SD card)
 
 // detection algorithm settings
-#define CORRELATION_THRESH 0.85            // positive correlation threshold
-#define CORRELATION_COUNT 16              // number of positive correlations to be considered a detection
-#define CORRELATION_MAX_INTERVAL 10000000 // maximum time between positive correlations (in microseconds) before correlation count is reset
+#define CORRELATION_THRESH 0.8            // positive correlation threshold
+#define CORRELATION_COUNT 8              // number of positive correlations to be considered a detection
+#define CORRELATION_MAX_INTERVAL 5000000 // maximum time between positive correlations (in microseconds) before correlation count is reset
 
-#define NOISE_REMOVAL_SIZE 8              // number of adjacent samples to use for computing sample deviation (Note: 2 = 5 total adjacent frequency domain samples used for averaging, 4 = 9, 8 = 17...)
-#define NOISE_REMOVAL_THRESH 2.5          // minumum sample deviation (samples with deviation below this value are considered noise)
+#define NOISE_REMOVAL_SIZE 4              // number of adjacent samples to use for computing sample deviation (Note: 2 = 5 total adjacent frequency domain samples used for averaging, 4 = 9, 8 = 17...)
+#define NOISE_REMOVAL_THRESH 2.75          // minumum sample deviation (samples with deviation below this value are considered noise)
 
-#define TIME_SMOOTHING 4                  // time domain smoothing size - (number of FFT windows used for averaging spectrogram data in the time axis)
-#define FREQ_SMOOTHING 2                  // number of adjacent frequency domain magnitudes to use for frequency domain smoothing (Note 2 = 5 total adjacent frequency domain samples used for averaging)
+#define TIME_SMOOTHING 2                  // time domain smoothing size - (number of FFT windows used for averaging spectrogram data in the time axis)
+#define FREQ_SMOOTHING 1                  // number of adjacent frequency domain magnitudes to use for frequency domain smoothing (Note 2 = 5 total adjacent frequency domain samples used for averaging)
 
-// preamp calibration values (audio input circuit gain is adjusted so that the maximum value read from ADC is in this range:
-// [PREAMP_CALIBRATION - PREAMP_CALIBRATION_THESH, PREAMP_CALIBRATION + PREAMP_CALIBRATION_THESH]
-#define PREAMP_CALIBRATION 2800 
-#define PREAMP_CALIBRATION_THRESH 100
+// preamp calibration values (audio input circuit gain is adjusted so that the maximum value read from ADC (during playback) is in this range:
+// [PREAMP_CALIBRATION * ADC_MAX - PREAMP_CALIBRATION_THESH * ADC_MAX, PREAMP_CALIBRATION * ADC_MAX + PREAMP_CALIBRATION_THESH * ADC_MAX]
+#define PREAMP_CALIBRATION 0.75 
+#define PREAMP_CALIBRATION_THRESH 0.05
+
+// number impulse FFTs to average to flatten frequency response of playback signal
+#define IMPULSE_RESPONSE_AVERAGING 20
 
 #define TEMPLATE_LENGTH 13  // length of correlation template (in windows)
 
@@ -57,13 +59,14 @@ uint16_t correlationTemplate[FFT_WINDOW_SIZE_BY2][TEMPLATE_LENGTH]; // buffer fo
 uint16_t processedFreqs[FFT_WINDOW_SIZE_BY2][FREQ_WIN_COUNT];       // buffer for processed frequency data
 uint16_t rawFreqs[FFT_WINDOW_SIZE_BY2][TIME_SMOOTHING];             // buffer for raw frequency data
 
-// buffers for newly recorded samples and FFT
-float vReal[FFT_WINDOW_SIZE];
-float vImag[FFT_WINDOW_SIZE];
+// complex array for FFT with Fast4ier
+complex complexSamples[FFT_WINDOW_SIZE];
 
 // scratch pad arrays
 uint16_t samples[FFT_WINDOW_SIZE];
 uint16_t scratch[FFT_WINDOW_SIZE_BY2];
+float freqs[FFT_WINDOW_SIZE];
+float scratchFloat[FFT_WINDOW_SIZE];
 
 PiedPiperMonitor p = PiedPiperMonitor(); // Pied Piper Monitor object (includes camera, digital pot, temperature sensor)
 
@@ -114,11 +117,8 @@ void setup() {
   // do necassary initializations (ISR, sinc filter table, configure pins)
   p.init();
 
-  p.Hypnos_3VR_OFF();
-  p.Hypnos_5VR_OFF();
-
   // turn on HYPNOS 3V rail
-  p.Hypnos_3VR_ON();
+  p.HYPNOS_3VR_ON();
 
   // check if RTC can be initialized, if it can, get the current time and use operation times loaded from SD card
   // to set next alarm and determine whether trap should be playing back
@@ -130,9 +130,11 @@ void setup() {
   if (!p.RTCWrap.initialize()) {
     Serial.println("RTC cannot be initialized");
     err |= ERR_RTC;
-  }
-  else {
+  } else {
     dt = p.RTCWrap.getDateTime();
+    strcpy(date, dateFormat);
+    dt.toString(date);
+    Serial.println(date);
   }
 
   // check if SD can be initialized, if it can, load settings, calibration sound, correlation template and operation times
@@ -148,12 +150,6 @@ void setup() {
     if (!p.loadTemplate(p.templateFilename, (uint16_t *)correlationTemplate, TEMPLATE_LENGTH)) {
       Serial.println("loadTemplate() error");
       err |= ERR_TEMPLATE;
-    } else {
-      p.SDCard.openFile("TEMP.TXT", FILE_WRITE);
-      for (int i = 0; i < TEMPLATE_LENGTH; i++) {
-        p.writeArrayToFile(correlationTemplate[i], FFT_WINDOW_SIZE_BY2);
-      }
-      p.SDCard.closeFile();
     }
 
     if (!p.loadOperationTimes(p.operationTimesFilename)) {
@@ -161,20 +157,20 @@ void setup() {
       err |= ERR_OPTIME;
     }
 
-    if ((err & ERR_RTC) > 0) {
+    if ((err & ERR_RTC) == 0) {
       minutesTillNextAlarm = p.OperationMan.minutesTillNextOperationTime(dt, trapActive);
       if (!p.RTCWrap.setAlarmSeconds(minutesTillNextAlarm * 60)) err |= ERR_RTC;
     }
   }
 
   // check if digital pot and temp sensor can be initialized
-  p.Hypnos_5VR_ON();  
+  p.HYPNOS_5VR_ON();  
 
   if (!p.preAmp.initialize()) {
     Serial.println("Digital pot cannot be initialized");
     err |= ERR_PREAMP;
   }
-  if (!p.tempSensor.begin()) {
+  if (!p.tempSensor->begin()) {
     Serial.println("Temp sensor cannot be initialized");
     err |= ERR_TEMPSEN;
   }
@@ -195,7 +191,7 @@ void setup() {
   p.initializationSuccess();
 
   // if current time is outside of operation interval, go to sleep  
-  if ((err & ERR_RTC) > 0 && !trapActive) p.SleepControl.goToSleep(OFF);
+  if ((err & ERR_RTC) == 0 && !trapActive) p.SleepControl.goToSleep(OFF);
 
   // set circular buffers and template
   rawSamplesBuffer.setBuffer((uint16_t *)rawSamples, FFT_WINDOW_SIZE, SAMPLES_WIN_COUNT);
@@ -215,33 +211,53 @@ void setup() {
 
   if (!p.loadSound(p.calibrationFilename)) Serial.printf("loadSound() error: %s\n", p.calibrationFilename);
 
-  // perform calibration (set pre-amp gain) 
+  // perform pre-amp gain calibration (calculate frequency response of transducer and set pre-amp gain) 
   p.amp.powerOn();
-  // p.frequencyResponse();
 
-  if (err & ERROR::ERR_PREAMP > 0) {
+  if ((err & ERR_PREAMP) > 0) Serial.println("digital pot error, cannot perform calibration");
+  else {
     p.performPlayback();
-    p.calibrate(PREAMP_CALIBRATION, PREAMP_CALIBRATION_THRESH);
-    Serial.println("calibration complete, starting audio input");
-  } else Serial.println("digital pot error, cannot perform calibration");
+    p.preAmpGainCalibration(PREAMP_CALIBRATION, PREAMP_CALIBRATION_THRESH);
+    Serial.println("calibration complete");
+  }
 
   Wire.end();
 
-  Serial.println("starting audio input..");
+  // TESTING PLAYBACK WITHOUT FLATTENED RESPONSE
+  // Serial.println("Starting og playback");
+  // int tempVal = 0;
+  // while (tempVal < 10) {
+  //   p.performPlayback();
+  //   tempVal += 1;
+  // }
+
+  // once gain is set, record an impulse to flatten frequency response of playback signal
+  Serial.println("Starting impulse response");
+  p.impulseResponseCalibration(IMPULSE_RESPONSE_AVERAGING);
+
+  // if (!p.loadSound(p.calibrationFilename)) Serial.printf("loadSound() error: %s\n", p.calibrationFilename);
+  // TESTING PLAYBACK WITH FLATTENED RESPONSE
+  // Serial.println("Starting flattened playback");
+  // tempVal = 0;
+  // while (tempVal < 100) {
+  //   p.performPlayback();
+  //   tempVal += 1;
+  // }
 
   p.amp.powerOff();
-  p.Hypnos_5VR_OFF();
+  p.HYPNOS_5VR_OFF();
 
   // load playback sound
   if (!p.loadSound(p.playbackFilename)) Serial.printf("loadSound() error: %s\n", p.playbackFilename);
-  // end SD
+
   p.SDCard.end();
 
-  p.Hypnos_3VR_OFF();
+  p.HYPNOS_3VR_OFF();
+
+  Serial.println("starting audio input..");
 
   // begin audio sampling
   p.startAudioInput();
-
 }
 
 void loop() {
@@ -253,24 +269,31 @@ void loop() {
   // store raw samples in buffer (saving this data to SD card)
   rawSamplesBuffer.pushData(samples);
 
-  // prepare arrays for FFT (copy samples to vReal and zero out vImag)
+  // prepare arrays for FFT
   for (int i = 0; i < FFT_WINDOW_SIZE; i++) {
-    vReal[i] = samples[i];
-    vImag[i] = 0;
+    complexSamples[i] = samples[i];
   }
 
-  FFT(vReal, vImag, FFT_WINDOW_SIZE);
+  DCRemoval(complexSamples, FFT_WINDOW_SIZE);
 
+  Fast4::FFT(complexSamples, FFT_WINDOW_SIZE);
+
+  ComplexToMagnitude(complexSamples, FFT_WINDOW_SIZE_BY2);
+
+  // storing magnitudes in freqs array
   for (int i = 0; i < FFT_WINDOW_SIZE_BY2; i++) {
-    vReal[i] *= FREQ_WIDTH;
+    freqs[i] = complexSamples[i].re() * FREQ_WIDTH;
   }
 
-  // stochastic noise removal
-  AlphaTrimming<float>(vReal, vImag, FFT_WINDOW_SIZE_BY2, NOISE_REMOVAL_SIZE, NOISE_REMOVAL_THRESH);
+  // stochastic noise removal using ATM
+  NoiseRemoval_ATM<float>(freqs, scratchFloat, FFT_WINDOW_SIZE_BY2, NOISE_REMOVAL_SIZE, NOISE_REMOVAL_THRESH);
+
+  // stochastic noise removal using CFAR
+  // NoiseRemoval_CFAR<float>(freqs, scratchFloat, FFT_WINDOW_SIZE_BY2, 2, 4, 1.0);
 
   // copy results to temporary buffer
   for (int i = 0; i < FFT_WINDOW_SIZE_BY2; i++) {
-    scratch[i] = uint16_t(round(vImag[i]));
+    scratch[i] = round(scratchFloat[i]);
   }
 
   // store 'raw' data in buffer for time smoothing
@@ -283,9 +306,6 @@ void loop() {
   FrequencySmoothing<uint16_t>(scratch, samples, FFT_WINDOW_SIZE_BY2, FREQ_SMOOTHING);
 
   // store time/frequency smoothed data to processed data buffer
-  for (int i = 0; i < FFT_WINDOW_SIZE_BY2; i++) {
-    samples[i] = uint16_t(round(samples[i] * FREQ_WIDTH));
-  }
   processedFreqsBuffer.pushData(samples);
 
   // correlation with processed data and template
@@ -293,13 +313,11 @@ void loop() {
 
   // do stuff if correlation is positive...
   if (correlationCoefficient >= CORRELATION_THRESH) {
-    Serial.println(correlationCoefficient);
-    // reset correlation count if positive correlatioon didn't occur within CORRELATION_MAX_INTERVAL
+    // reset correlation count if positive correlation didn't occur within CORRELATION_MAX_INTERVAL
     if (microsTime - lastCorrelationTime > CORRELATION_MAX_INTERVAL) correlationCount = 0;
     averagedCorrelationCoefficient[correlationCount] = correlationCoefficient;
     correlationCount += 1;
     lastCorrelationTime = microsTime;
-    Serial.println(correlationCoefficient);
   }
   
   // if count of recent positive correlation is equal to CORRELATION_COUNT, consider this a positive detection
@@ -312,30 +330,39 @@ void loop() {
     Serial.println("Detection occurded!");
     Serial.println("Saving data to SD...");
 
-    correlationCount = 0;
     lastDetectionTime = microsTime;
 
     // write detection data (structure: DATA/YYMMDD/hhmmss/)
-    p.Hypnos_3VR_ON();
+    p.HYPNOS_3VR_ON();
 
     // get date time
     Wire.begin();
-    p.RTCWrap.getDateTime().toString(date);
+    dt = p.RTCWrap.getDateTime();
+    strcpy(date, dateFormat);
+    dt.toString(date);
     Serial.println(date);
     Wire.end();
 
     p.SDCard.begin();
+
     saveDetection();
+    
     p.SDCard.end();
 
-    p.Hypnos_3VR_OFF();
+    p.HYPNOS_3VR_OFF();
 
     // perform playback...
+    p.HYPNOS_5VR_ON();
     p.amp.powerOn();
-    p.Hypnos_5VR_ON();
     p.performPlayback();
     p.amp.powerOff();
-    p.Hypnos_5VR_OFF();
+    p.HYPNOS_5VR_OFF();
+
+    rawSamplesBuffer.clearBuffer();
+    rawFreqsBuffer.clearBuffer();
+    processedFreqsBuffer.clearBuffer();
+
+    correlationCount = 0;
 
     // restart audio sampling
     p.startAudioInput();
@@ -428,7 +455,7 @@ void saveDetection() {
   // TODO: open file for storing photo, call camera.takePhoto(&p.SDCard.data) after opening file...
   // Hints: 
   //    - use buf2 to form path to photo file...
-  //    - make sure to turn on Hypnos 5VR before taking photo
+  //    - make sure to turn on HYPNOS 5VR before taking photo
 }
 
 // TODO: implement logAlive. It must log time from RTC and temperature/humidity data from temperature sensor to LOG.TXT...
