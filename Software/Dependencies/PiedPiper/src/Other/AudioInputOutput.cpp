@@ -154,7 +154,7 @@ void PiedPiperBase::RecordAndOutputRawSample(void) {
 void PiedPiperBase::RecordSample(void) {
     if (AUD_IN_BUFFER_IDX >= FFT_WINDOW_SIZE) return;
     // store last location in input buffer and read sample into circular downsampling input buffer
-    static int downsampleInputIdxCpy = downsampleInputIdx;
+    uint16_t downsampleInputIdxCpy = downsampleInputIdx;
     downsampleFilterInput[downsampleInputIdx++] = analogRead(PIN_AUD_IN);
 
     if (downsampleInputIdx == sincTableSizeDown) downsampleInputIdx = 0;
@@ -185,7 +185,7 @@ void PiedPiperBase::OutputSample(void) {
     filteredValue = 0.0;
 
     if (upsampleInputCount == 0) {
-        static uint16_t flatteningInputIdxCpy = flatteningInputIdx;
+        uint16_t flatteningInputIdxCpy = flatteningInputIdx;
         flatteningFilterInput[flatteningInputIdx++] = PLAYBACK_FILE[PLAYBACK_FILE_BUFFER_IDX++];
 
         if (flatteningInputIdx == WINDOW_SIZE) flatteningInputIdx = 0;
@@ -201,7 +201,7 @@ void PiedPiperBase::OutputSample(void) {
 
     // Second layer of convolution - upsampling flattened playback signal
     // store last location of upsampling input buffer
-    static uint16_t upsampleInputIdxCpy = upsampleInputIdx;
+    uint16_t upsampleInputIdxCpy = upsampleInputIdx;
 
     // store value of sample to filter input buffer when upsample count == 0, otherwise pad with zeroes
     upsampleFilterInput[upsampleInputIdx++] = round(filteredValue);
