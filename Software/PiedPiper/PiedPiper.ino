@@ -25,6 +25,8 @@
 #include <PiedPiper.h>
 #include <float.h>
 
+DFRobot_SHT3x sht3x(&Wire, 0x44, -1); 
+
 char settingsFilename[] = "SETTINGS.txt";   // settings filename (loaded from SD card)
 
 // detection algorithm settings
@@ -117,11 +119,10 @@ void setup() {
   // do necassary initializations (ISR, sinc filter table, configure pins)
   p.init();
 
-  p.Hypnos_3VR_OFF();
-  p.Hypnos_5VR_OFF();
-
   // turn on HYPNOS 3V rail
   p.Hypnos_3VR_ON();
+
+  p.Hypnos_5VR_ON();
 
   // check if RTC can be initialized, if it can, get the current time and use operation times loaded from SD card
   // to set next alarm and determine whether trap should be playing back
@@ -171,29 +172,33 @@ void setup() {
   }
 
   // check if digital pot and temp sensor can be initialized
-  p.Hypnos_5VR_ON();  
+  // p.Hypnos_5VR_ON();  
 
   if (!p.preAmp.initialize()) {
     Serial.println("Digital pot cannot be initialized");
     err |= ERR_PREAMP;
   }
-  if (p.tempSensor.begin() != 0) {
+  delay(1000);
+  if (sht3x.begin() != 0) {
     Serial.println("Temp sensor cannot be initialized");
     err |= ERR_TEMPSEN;
   }
-  else {
+   else {
     // get temperature and humidity values
-    temperatureC = p.tempSensor.getTemperatureC();
-    humidity = p.tempSensor.getHumidityRH();
-  }
+    // using sht3x for now!!!
 
+    temperatureC = sht3x.getTemperatureC();
+    humidity = sht3x.getHumidityRH();
+
+    // temperatureC = p.tempSensor.getTemperatureC();
+    // humidity = p.tempSensor.getHumidityRH();
+   }
   // check if camera can be initialized
   if (!p.camera.initialize()) {
     Serial.println("TTL Camera cannot be initialized");
     err |= ERR_CAMERA;
   }
 
-  // TODO - implement logAlive() function (notice how RTC and temp sensor just read the necassary data so you don't need to worry about reading those again just store readings as globals)
   logAlive();
 
   Serial.println("Pied Piper ready");
@@ -254,6 +259,9 @@ void loop() {
   if (!p.audioInputBufferFull(samples)) return;
 
   updateMicros();
+
+  saveDetection();
+  delay(3000);
 
   // store raw samples in buffer (saving this data to SD card)
   rawSamplesBuffer.pushData(samples);
@@ -434,59 +442,60 @@ void saveDetection() {
 
   Serial.println(correlationCoefficient);
   
+  useCamera();
+
   // TODO: open file for storing photo, call camera.takePhoto(&p.SDCard.data) after opening file...
   // Hints: 
   //    - use buf2 to form path to photo file...
   //    - make sure to turn on Hypnos 5VR before taking photo
 }
 
-// TODO: implement logAlive. It must log time from RTC and temperature/humidity data from temperature sensor to LOG.TXT...
+//       implement logAlive. It must log time from RTC and temperature/humidity data from temperature sensor to LOG.TXT...
 //       in this format "YYYYDDMM-hh:mm:ss T H E" (T = temperature, H = humidity, E = err)
 //       if rtc is not alive log "YYYYDDMM-hh:mm:ss" instead of time
 //       if temperature sensor is not alive, log "T H" instead of temperature and humidity
 
 void logAlive() {
-  // File logFile = SD.open("LOG.TXT", FILE_WRITE); // Open LOG.TXT for writing
-  // if (!logFile) {
-  //     Serial.println("Error opening LOG.TXT for writing.");
-  //     return;
-  // }
+  // file
+  char buf[64] = { 0 };
+  strcat(buf, "/LOG.TXT");
 
-  //  // Check if RTC is alive
-  // if (err & ERR_RTC) {
-  //   // If RTC is not alive, just use a placeholder date
-  //   snprintf(date, sizeof(date), "YYYYDDMM-hh:mm:ss");
-  // } else {
-  //   // Normal RTC time formatting
-  //   snprintf(date, sizeof(date), "%04d%02d%02d-%02d:%02d:%02d",
-  //             dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(), dt.second());
-  // }
-  // // Write data to the log file
-  // logFile.print(date);
-  // logFile.print(", ");
-  // // Check if temperature sensor is alive
-  // if (err & ERR_TEMPSEN) {
-  //   // If temp sensor is not alive, log placeholders for temp and humidity
-  //   logFile.print("T, H");
-  // } 
-  // else {
-  //   // Normal temperature and humidity logging
-  //   logFile.print(temperatureC, 2); // Write temperature with 2 decimal precision
-  //   logFile.print(" °C, ");
-  //   logFile.print(humidity, 2);    // Write humidity with 2 decimal precision
-  //   logFile.print("%");
-  // }
-  // // Log the error code
-  // if (err) {
-  //   logFile.print(", 0x");
-  //   logFile.println(err, HEX);
-  // }
-  // logFile.println();
-  
+  // write buffer to LOG.txt
+  if (!p.SDCard.openFile(buf, FILE_WRITE)) {
+    Serial.printf("openFile() error: %s", buf);
+    p.SDCard.closeFile();
+  }
+  else {
+    p.SDCard.data.print(dt.toString(date));
+    p.SDCard.data.print(" ");
 
-  // // Close the file to save changes
-  // logFile.close();
-  // Serial.println("Logged alive data to LOG.TXT successfully.");
+  // If temp sensor is not alive, log placeholders for temp and humidity
+  if (err & ERR_TEMPSEN) {
+    p.SDCard.data.print("T H ");
+  } 
+
+  // storing temperature and humidity data
+  else {
+    p.SDCard.data.print(temperatureC);
+    p.SDCard.data.print(" ");
+    p.SDCard.data.print(humidity);
+    p.SDCard.data.print(" ");
+  }
+
+  // Log the error code(s)
+  if (err) {
+    p.SDCard.data.print(err);
+  }
+
+  else {
+    p.SDCard.data.print("E");
+  }
+
+    p.SDCard.data.print("\n");
+    p.SDCard.closeFile();
+  }
+
+  Serial.println("Logged alive data to LOG.TXT successfully.");
   return;
 }
 
@@ -503,4 +512,17 @@ void updateMicros() {
     // p.stopAudio();
     // p.startAudioInput();
   }
+}
+
+
+void useCamera() {
+  Serial.println("useCamera!!!");
+  p.Hypnos_5VR_ON();
+  p.camera.initialize();
+  p.camera.cameraOn();
+  p.SDCard.openFile("ABC.JPG", FILE_WRITE);
+  p.camera.takePhoto(&p.SDCard.data);
+  p.SDCard.closeFile();
+  p.camera.cameraOff();
+  p.Hypnos_5VR_OFF();
 }

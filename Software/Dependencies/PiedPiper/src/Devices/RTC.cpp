@@ -7,7 +7,7 @@ RTCWrapper::RTCWrapper(uint8_t i2c_address) {
 bool RTCWrapper::initialize() {
     if (!this->rtc.begin()) return false;
 
-    if (!this->rtc.lostPower()) {
+    if (this->rtc.lostPower()) {
         Serial.println("RTC lost power, check voltage on HYPNOS battery. RTC should be properly adjusted!");
         this->rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
     }

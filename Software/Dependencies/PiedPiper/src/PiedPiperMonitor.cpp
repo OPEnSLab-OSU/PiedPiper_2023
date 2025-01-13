@@ -1,7 +1,9 @@
 #include "PiedPiper.h"
 
-PiedPiperMonitor::PiedPiperMonitor() {
+DFRobot_SHT3x PiedPiperMonitor::tempSensor();
 
+PiedPiperMonitor::PiedPiperMonitor() {
+    this->tempSensor = DFRobot_SHT3x(&Wire, 0x44, -1);
 }
 
 void PiedPiperMonitor::init() {

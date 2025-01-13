@@ -147,7 +147,7 @@ class PiedPiperMonitor : public PiedPiperBase
 
     public:
 
-        DFRobot_SHT3x tempSensor = DFRobot_SHT3x();
+        DFRobot_SHT3x tempSensor;
 
         MCP465 preAmp = MCP465(DEFAULT_MCP465_ADDR);
 
@@ -162,8 +162,6 @@ class PiedPiperMonitor : public PiedPiperBase
         void frequencyResponse();
 
         void calibrate(uint16_t calibrationValue, uint16_t threshold);
-
-
 
 };
 
