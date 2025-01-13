@@ -9,6 +9,7 @@ void PiedPiperBase::init() {
     this->configurePins();
     this->calculateDownsampleSincFilterTable();
     this->calculateUpsampleSincFilterTable();
+    this->generateImpulse();
     this->TimerInterrupt.initialize();
     delay(1000);
 }
@@ -29,13 +30,13 @@ void PiedPiperBase::configurePins(void) {
     analogWrite(PIN_AUD_OUT, 0);
 }
 
-void PiedPiperBase::Hypnos_3VR_ON() { digitalWrite(PIN_HYPNOS_3VR, LOW); }
+void PiedPiperBase::HYPNOS_3VR_ON() { digitalWrite(PIN_HYPNOS_3VR, LOW); }
 
-void PiedPiperBase::Hypnos_3VR_OFF() { digitalWrite(PIN_HYPNOS_3VR, HIGH); }
+void PiedPiperBase::HYPNOS_3VR_OFF() { digitalWrite(PIN_HYPNOS_3VR, HIGH); }
 
-void PiedPiperBase::Hypnos_5VR_ON() { digitalWrite(PIN_HYPNOS_5VR, HIGH); }
+void PiedPiperBase::HYPNOS_5VR_ON() { digitalWrite(PIN_HYPNOS_5VR, HIGH); }
 
-void PiedPiperBase::Hypnos_5VR_OFF() { digitalWrite(PIN_HYPNOS_5VR, LOW); }
+void PiedPiperBase::HYPNOS_5VR_OFF() { digitalWrite(PIN_HYPNOS_5VR, LOW); }
 
 void PiedPiperBase::initializationFail() {
     indicator.begin();
@@ -177,7 +178,7 @@ void PiedPiperBase::performPlayback() {
     
     TimerInterrupt.attachTimerInterrupt(AUD_OUT_SAMPLE_DELAY_TIME, OutputSample);
 
-    while (PLAYBACK_FILE_BUFFER_IDX < PLAYBACK_FILE_SAMPLE_COUNT);
+    while (getPlaybackFileIndex() < PLAYBACK_FILE_SAMPLE_COUNT);
 
     stopAudio();
 

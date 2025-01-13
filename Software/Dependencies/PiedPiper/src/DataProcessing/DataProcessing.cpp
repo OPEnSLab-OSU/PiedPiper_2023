@@ -1,16 +1,21 @@
 #include "DataProcessing.h"
 
-ArduinoFFT<float> fft = ArduinoFFT<float>();
+void DCRemoval(complex *input, uint16_t windowSize) {
+    int i;
+    complex average = 0;
+    for (i = 0; i < windowSize; i++) {
+        average += input[i];
+    }
 
-void FFT(float *inputReal, float *inputImag, uint16_t windowSize) { 
-    fft.dcRemoval(inputReal, windowSize);
-    fft.windowing(inputReal, windowSize, FFT_WIN_TYP_HAMMING, FFT_FORWARD);
-    fft.compute(inputReal, inputImag, windowSize, FFT_FORWARD);
-    fft.complexToMagnitude(inputReal, inputImag, windowSize);
+    average /= windowSize;
+
+    for (i = 0; i < windowSize; i++) {
+        input[i] -= average;
+    }
 }
 
-void iFFT(float *inputReal, float *inputImag, uint16_t windowSize) { 
-    fft.compute(inputReal, inputImag, windowSize, FFT_REVERSE);
-    // fft.complexToMagnitude(inputReal, inputImag, windowSize);
-    fft.windowing(inputReal, windowSize, FFT_WIN_TYP_HAMMING, FFT_REVERSE);
+void ComplexToMagnitude(complex *input, uint16_t windowSize) {
+    for (int i = 0; i < windowSize; i++) {
+        input[i] = sqrt(sq(input[i].re()) + sq(input[i].im()));
+    }
 }

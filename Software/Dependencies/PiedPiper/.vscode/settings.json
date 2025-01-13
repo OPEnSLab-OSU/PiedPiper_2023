@@ -18,6 +18,7 @@
         "format": "cpp",
         "ranges": "cpp",
         "variant": "cpp",
-        "ostream": "cpp"
+        "ostream": "cpp",
+        "cstdlib": "cpp"
     }
 }

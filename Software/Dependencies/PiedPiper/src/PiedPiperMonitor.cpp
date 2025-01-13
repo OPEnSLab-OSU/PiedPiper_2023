@@ -1,136 +1,115 @@
 #include "PiedPiper.h"
 
-DFRobot_SHT3x PiedPiperMonitor::tempSensor();
+DFRobot_SHT3x sht31 = DFRobot_SHT3x(&Wire, DEFAULT_SHT31_ADDR, -1);
 
-PiedPiperMonitor::PiedPiperMonitor() {
-    this->tempSensor = DFRobot_SHT3x(&Wire, 0x44, -1);
-}
+PiedPiperMonitor::PiedPiperMonitor() {}
 
 void PiedPiperMonitor::init() {
     PiedPiperBase::init();
-
+    this->tempSensor = &sht31;
 }
 
-void PiedPiperMonitor::frequencyResponse() {
-    // char outFile[] = "CALTD.txt";
-    // char outFile2[] = "CALFD.txt";
-    uint16_t samples[FFT_WINDOW_SIZE];
-    float vReal[FFT_WINDOW_SIZE];
-    float vImag[FFT_WINDOW_SIZE];
+bool PiedPiperMonitor::preAmpGainCalibration(float adcRange, float rangeThreshold) {
 
-    for (uint16_t i = 0; i < FFT_WINDOW_SIZE; i++) {
-        PLAYBACK_FILE[i] = DAC_MID;
-    }
-    PLAYBACK_FILE[FFT_WINDOW_SIZE_BY2] = DAC_MAX;
-
-    PLAYBACK_FILE_SAMPLE_COUNT = 256;
-
-    RESET_PLAYBACK_FILE_INDEX();
-
-    analogWrite(PIN_AUD_OUT, 2048);
-
-    startAudioInputAndOutput();
-
-    while (!audioInputBufferFull(samples));
-
-    stopAudio();
-
-    for (int i = 0; i < FFT_WINDOW_SIZE; i++) {
-        vReal[i] = samples[i];
-        vImag[i] = 0;
-    }
-
-    // SDCard.openFile(outFile, FILE_WRITE);
-    // writeArrayToFile<uint16_t>(samples, FFT_WINDOW_SIZE);
-    // SDCard.closeFile();
-
-    analogWrite(PIN_AUD_OUT, 0);
-
-    FFT(vReal, vImag, FFT_WINDOW_SIZE);
-
-    for (int i = 0; i < FFT_WINDOW_SIZE_BY2; i++) {
-        vReal[i] = 1.0 / vReal[i];
-    }
-
-    // SDCard.openFile(outFile2, FILE_WRITE);
-    // writeArrayToFile<float>(vReal, FFT_WINDOW_SIZE_BY2);
-    // SDCard.closeFile();
-
-    
-}
-
-void PiedPiperMonitor::calibrate(uint16_t calibrationValue, uint16_t threshold) {
-
+    // length of calibration file in windows
     uint16_t _playbackNumWindows = round(PLAYBACK_FILE_SAMPLE_COUNT / WINDOW_SIZE);
-    uint16_t _calValLow, _calValHigh, _windowCount, i;
-    int16_t _nextPotValue, _nextPotValueBy2, _lastPotValue;
-    uint16_t _max;
-    uint16_t _temp[FFT_WINDOW_SIZE];
+    
+    // a bunch of temporary variables for digital pot adjustment
+    uint16_t _calValLow, _calValHigh, _max, _sample;
+    int16_t _nextWiperValue, _nextWiperValueBy2, _lastWiperValue;
 
-    _calValLow = calibrationValue - threshold;
-    _calValHigh = calibrationValue + threshold;
-    _nextPotValue = 256;
-    _nextPotValueBy2 = 256;
-    _windowCount = 0;
+    uint16_t _samples[FFT_WINDOW_SIZE]; // array for storing recorded samples
 
+    uint16_t _windowCount, i;
+
+    uint32_t _sum;
+
+    // computing calibration thresholds
+    _calValLow = round(adcRange * ADC_MID) - round(rangeThreshold * ADC_MID);
+    _calValHigh = round(adcRange * ADC_MID) + round(rangeThreshold * ADC_MID);
+
+    // initial position of digital pot wiper
+    _nextWiperValue = 256;
+    _nextWiperValueBy2 = _nextWiperValue;
+
+    //if (preAmp.writeWiperValue(_nextWiperValue) > 0) Serial.println("writeWiperValue() error");
+
+    // starting calibration procedure
     analogWrite(PIN_AUD_OUT, 2048);
 
     delay(1000);
 
+    // clearing sample buffer
     startAudioInput();
 
-    while (!audioInputBufferFull(_temp))
+    while (!audioInputBufferFull(_samples))
         ;
 
     stopAudio();
 
+    // sampling playback signal and recording peak amplitude value to adjust digital pot
     while (1) {
 
         _max = 0;
         _windowCount = 0;
 
-        if (preAmp.writeWiperValue(_nextPotValue) > 0) Serial.println("writeWiperValue() error");
-
+        // writing next wiper value to digital pot
+        if (preAmp.writeWiperValue(_nextWiperValue) > 0) Serial.println("writeWiperValue() error");
+        // adding slight delay for things to stabalize
         delay(500);
 
         RESET_PLAYBACK_FILE_INDEX();
 
+        // start audio input and output
         startAudioInputAndOutput();
 
+        // waiting for full duration of calibration sound to be completed
         while (_windowCount < _playbackNumWindows) {
-            if (!audioInputBufferFull(_temp)) continue;
+            if (!audioInputBufferFull(_samples)) continue;
 
-            // Serial.println(_windowCount);
-            _windowCount += 1;
-
+            // removing DC component from recorded signal
+            _sum = 0;
             for (i = 0; i < FFT_WINDOW_SIZE; i++) {
-                if (_temp[i] > _max) _max = _temp[i];
+                _sum += _samples[i];
             }
+            _sum /= FFT_WINDOW_SIZE;
+
+            // finding maximum value in recorded samples
+            for (i = 0; i < FFT_WINDOW_SIZE; i++) {
+                _sample = abs(int(_samples[i]) - _sum);
+                if (_sample > _max) _max = _sample;
+            }
+
+            _windowCount += 1;
         }
 
         stopAudio();
 
-        // analogWrite(PIN_AUD_OUT, 2048);
+        _lastWiperValue = _nextWiperValue;
 
-        _lastPotValue = _nextPotValue;
+        // incremental adjustment of wiper value in powers of 2 (256 -> 128 ... 2 -> 1)
+        _nextWiperValueBy2 = _nextWiperValueBy2 >> 1;
+        _nextWiperValueBy2 = _nextWiperValueBy2 > 0 ? _nextWiperValueBy2 : 1;
 
-        _nextPotValueBy2 = _nextPotValueBy2 >> 1;
-        _nextPotValueBy2 = _nextPotValueBy2 > 0 ? _nextPotValueBy2 : 1;
-
-        if (_max > _calValHigh) _nextPotValue = _nextPotValue + _nextPotValueBy2;
-        else if (_max < _calValLow) _nextPotValue = _nextPotValue -  _nextPotValueBy2;
+        // checking which direction to adjust wiper, no adjustment needed if value is within range
+        if (_max > _calValHigh) _nextWiperValue = _nextWiperValue + _nextWiperValueBy2;
+        else if (_max < _calValLow) _nextWiperValue = _nextWiperValue -  _nextWiperValueBy2;
         else break;
 
-        _nextPotValue = max(0, min(256, _nextPotValue));
+        // ensuring next wiper value is digital pot range
+        _nextWiperValue = max(0, min(256, _nextWiperValue));
 
         // Serial.print("next wiper value: ");
-        // Serial.println(_nextPotValue);
+        // Serial.println(_nextWiperValue);
 
-        Serial.print("readWiperValue(): ");
-        Serial.println(preAmp.readWiperValue());
+        // Serial.print("readWiperValue(): ");
+        // Serial.println(preAmp.readWiperValue());
 
-        if (_nextPotValue == _lastPotValue) break;
+        // break if the next wiper value and previous wiper value are equal (i.e both are 0 or 256) this indicates that calibration has failed
+        if (_nextWiperValue == _lastWiperValue) return false;
 
     }
+    // return true on success
+    return true;
 
 }
