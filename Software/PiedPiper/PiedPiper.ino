@@ -462,9 +462,55 @@ void saveDetection() {
 //       in this format "YYYYDDMM-hh:mm:ss T H E" (T = temperature, H = humidity, E = err)
 //       if rtc is not alive log "YYYYDDMM-hh:mm:ss" instead of time
 //       if temperature sensor is not alive, log "T H" instead of temperature and humidity
+//       implement logAlive. It must log time from RTC and temperature/humidity data from temperature sensor to LOG.TXT...
+//       in this format "YYYYDDMM-hh:mm:ss T H E" (T = temperature, H = humidity, E = err)
+//       if rtc is not alive log "YYYYDDMM-hh:mm:ss" instead of time
+//       if temperature sensor is not alive, log "T H" instead of temperature and humidity
+
 void logAlive() {
+  // file
+  char buf[64] = { 0 };
+  strcat(buf, "/LOG.TXT");
+
+  // write buffer to LOG.txt
+  if (!p.SDCard.openFile(buf, FILE_WRITE)) {
+    Serial.printf("openFile() error: %s", buf);
+    p.SDCard.closeFile();
+  }
+  else {
+    p.SDCard.data.print(dt.toString(date));
+    p.SDCard.data.print(" ");
+
+  // If temp sensor is not alive, log placeholders for temp and humidity
+  if (err & ERR_TEMPSEN) {
+    p.SDCard.data.print("T H ");
+  } 
+
+  // storing temperature and humidity data
+  else {
+    p.SDCard.data.print(temperatureC);
+    p.SDCard.data.print(" ");
+    p.SDCard.data.print(humidity);
+    p.SDCard.data.print(" ");
+  }
+
+  // Log the error code(s)
+  if (err) {
+    p.SDCard.data.print(err);
+  }
+
+  else {
+    p.SDCard.data.print("E");
+  }
+
+    p.SDCard.data.print("\n");
+    p.SDCard.closeFile();
+  }
+
+  Serial.println("Logged alive data to LOG.TXT successfully.");
   return;
 }
+
 
 // updates microsTime
 void updateMicros() {
