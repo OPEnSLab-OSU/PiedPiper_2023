@@ -526,3 +526,16 @@ void updateMicros() {
     // p.startAudioInput();
   }
 }
+
+
+void useCamera() {
+  Serial.println("useCamera!!!");
+  p.Hypnos_5VR_ON();
+  p.camera.initialize();
+  p.camera.cameraOn();
+  p.SDCard.openFile("ABC.JPG", FILE_WRITE);
+  p.camera.takePhoto(&p.SDCard.data);
+  p.SDCard.closeFile();
+  p.camera.cameraOff();
+  p.Hypnos_5VR_OFF();
+}
