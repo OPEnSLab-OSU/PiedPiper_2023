@@ -1,9 +1,10 @@
 #include "Peripherals.h"
+#include <Arduino.h>
 
 Adafruit_VC0706 _cam = Adafruit_VC0706(&Serial1);
 
 TTLCamera::TTLCamera() {
-    
+    this->cam = nullptr;
 }
 
 bool TTLCamera::initialize() {
@@ -17,14 +18,18 @@ bool TTLCamera::initialize() {
 }
 
 bool TTLCamera::takePhoto(File *file) {
-    if (!file) return false;
-
+    if (!(*file)) return false;
+    
     if (!cam->begin()) return false;
 
-    if (!cam->setImageSize(VC0706_640x480)) return false;
+    if (!cam->setImageSize(VC0706_640x480)) {
+        Serial.print("Set image size failed; image size: ");
+        Serial.println(cam->getImageSize());
+    }
+    delay(50);
 
     if (!cam->takePicture()) return false;
-
+    
     uint32_t frameLength = cam->frameLength();
 
     uint8_t *buffer;
@@ -37,7 +42,6 @@ bool TTLCamera::takePhoto(File *file) {
 
         frameLength -= bytesToRead;
     }
-
     cam->reset();
 
     return true;

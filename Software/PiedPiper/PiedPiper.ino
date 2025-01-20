@@ -24,7 +24,7 @@
 
 #include <PiedPiper.h>
 
-DFRobot_SHT3x sht3x(&Wire, 0x44, -1); 
+// DFRobot_SHT3x sht3x(&Wire, 0x44, -1); 
 
 char settingsFilename[] = "SETTINGS.txt";   // settings filename (loaded from SD card)
 
@@ -125,7 +125,7 @@ void setup() {
   // turn on HYPNOS 3V rail
   p.HYPNOS_3VR_ON();
 
-  p.Hypnos_5VR_ON();
+  p.HYPNOS_5VR_ON();
 
   // check if RTC can be initialized, if it can, get the current time and use operation times loaded from SD card
   // to set next alarm and determine whether trap should be playing back
@@ -177,19 +177,14 @@ void setup() {
     Serial.println("Digital pot cannot be initialized");
     err |= ERR_PREAMP;
   }
-  if (!p.tempSensor->begin()) {
+  // MIGHT NEED TO INVERT THIS
+  if (p.tempSensor->begin()) {
     Serial.println("Temp sensor cannot be initialized");
     err |= ERR_TEMPSEN;
   }
    else {
-    // get temperature and humidity values
-    // using sht3x for now!!!
-
-    temperatureC = sht3x.getTemperatureC();
-    humidity = sht3x.getHumidityRH();
-
-    // temperatureC = p.tempSensor.getTemperatureC();
-    // humidity = p.tempSensor.getHumidityRH();
+    temperatureC = p.tempSensor->getTemperatureC();
+    humidity = p.tempSensor->getHumidityRH();
    }
   // check if camera can be initialized
   if (!p.camera.initialize()) {
@@ -235,6 +230,9 @@ void setup() {
 
   Wire.end();
 
+  useCamera();
+
+
   // TESTING PLAYBACK WITHOUT FLATTENED RESPONSE
   // Serial.println("Starting og playback");
   // int tempVal = 0;
@@ -264,6 +262,7 @@ void setup() {
 
   p.SDCard.end();
 
+
   p.HYPNOS_3VR_OFF();
 
   Serial.println("starting audio input..");
@@ -274,7 +273,7 @@ void setup() {
 
 void loop() {
   // check if audio input buffer is filled (store samples to buffer, this is needed as sampling is done via interrupt timer)
-  if (!p.audioInputBufferFull(samples)) return;
+  // if (!p.audioInputBufferFull(samples)) return;
 
   updateMicros();
 
@@ -385,6 +384,15 @@ void loop() {
 
   // TODO - add other intermittent data logging (see PiedPiper_old.ino as example)
   //        use microsTime here, it stores time returned by micros() everytime the audio input buffer fills
+  // log alive every hour
+  if (microsTime - prevMicrosTime > 3000){
+    p.stopAudio();
+    logAlive();
+    // p.ResetFrequencyBuffers
+    p.startAudioInput();
+    Serial.println(microsTime);
+  }
+
 }
 
 // saves detection data to SD card to "/DATA/YYYYMMDD/hhmmss/"
@@ -471,7 +479,7 @@ void saveDetection() {
 
   Serial.println(correlationCoefficient);
   
-  useCamera();
+  // useCamera();
 
   // TODO: open file for storing photo, call camera.takePhoto(&p.SDCard.data) after opening file...
   // Hints: 
@@ -499,33 +507,26 @@ void logAlive() {
     p.SDCard.data.print(dt.toString(date));
     p.SDCard.data.print(" ");
 
-  // If temp sensor is not alive, log placeholders for temp and humidity
-  if (err & ERR_TEMPSEN) {
-    p.SDCard.data.print("T H ");
-  } 
+    // If temp sensor is not alive, log placeholders for temp and humidity
+    if (err & ERR_TEMPSEN) {
+      p.SDCard.data.print("T H ");
+    } 
 
-  // storing temperature and humidity data
-  else {
-    p.SDCard.data.print(temperatureC);
-    p.SDCard.data.print(" ");
-    p.SDCard.data.print(humidity);
-    p.SDCard.data.print(" ");
+    // storing temperature and humidity data
+    else {
+      p.SDCard.data.print(temperatureC);
+      p.SDCard.data.print(" ");
+      p.SDCard.data.print(humidity);
+      p.SDCard.data.println(" ");
+    }
+
+    // Log the error code(s)
+    if (err) {
+      p.SDCard.data.println(err);
+    }
+   
   }
-
-  // Log the error code(s)
-  if (err) {
-    p.SDCard.data.print(err);
-  }
-
-  else {
-    p.SDCard.data.print("E");
-  }
-
-    p.SDCard.data.print("\n");
-    p.SDCard.closeFile();
-  }
-
-  Serial.println("Logged alive data to LOG.TXT successfully.");
+  p.SDCard.closeFile();
   return;
 }
 
@@ -547,13 +548,24 @@ void updateMicros() {
 
 
 void useCamera() {
-  Serial.println("useCamera!!!");
-  p.Hypnos_5VR_ON();
-  p.camera.initialize();
-  p.camera.cameraOn();
-  p.SDCard.openFile("ABC.JPG", FILE_WRITE);
-  p.camera.takePhoto(&p.SDCard.data);
+  p.HYPNOS_5VR_ON();
+  
+  unsigned long timestamp = millis();
+  char filename[13];  // Enough space for the timestamp and ".jpg"
+  snprintf(filename, sizeof(filename), "img%05lu.jpg", timestamp % 10000000);  // Use modulo to limit length
+
+  if(!p.SDCard.openFile(filename, FILE_WRITE)){
+    Serial.println("open file failed");
+  }
+  // check for error conditions
+  if (!p.camera.takePhoto(&p.SDCard.data)){
+    // err |= ERR_CAMERA; 
+    Serial.println("take photo failed");
+  }
+  else {
+    Serial.println("Photo captured");
+  }
+
+  p.HYPNOS_5VR_OFF();
   p.SDCard.closeFile();
-  p.camera.cameraOff();
-  p.Hypnos_5VR_OFF();
 }
