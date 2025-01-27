@@ -25,8 +25,9 @@ bool TTLCamera::takePhoto(File *file) {
     if (!cam->setImageSize(VC0706_640x480)) {
         Serial.print("Set image size failed; image size: ");
         Serial.println(cam->getImageSize());
+        Serial.println(VC0706_640x480); // Should output the expected value
+
     }
-    delay(50);
 
     if (!cam->takePicture()) return false;
     

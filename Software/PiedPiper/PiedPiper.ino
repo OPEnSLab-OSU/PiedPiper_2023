@@ -277,8 +277,8 @@ void loop() {
 
   updateMicros();
 
-  saveDetection();
-  delay(3000);
+  //saveDetection();
+  //delay(3000);
 
   // store raw samples in buffer (saving this data to SD card)
   rawSamplesBuffer.pushData(samples);
@@ -359,7 +359,7 @@ void loop() {
 
     p.SDCard.begin();
 
-    saveDetection();
+    // saveDetection();
     
     p.SDCard.end();
 
@@ -479,7 +479,7 @@ void saveDetection() {
 
   Serial.println(correlationCoefficient);
   
-  // useCamera();
+  useCamera();
 
   // TODO: open file for storing photo, call camera.takePhoto(&p.SDCard.data) after opening file...
   // Hints: 
@@ -546,26 +546,37 @@ void updateMicros() {
   }
 }
 
-
 void useCamera() {
   p.HYPNOS_5VR_ON();
+  char buf[64] = { 0 };
+
+  // create DATA directory if it does not exist
+  strcat(buf, "/DATA/");
+  if (!SD.exists(buf)) SD.mkdir(buf);
   
-  unsigned long timestamp = millis();
-  char filename[13];  // Enough space for the timestamp and ".jpg"
-  snprintf(filename, sizeof(filename), "img%05lu.jpg", timestamp % 10000000);  // Use modulo to limit length
+  // creating directory with date YYMMDD
+  strncat(buf + 6, date, 8);
+  SD.mkdir(buf);
 
-  if(!p.SDCard.openFile(filename, FILE_WRITE)){
-    Serial.println("open file failed");
-  }
-  // check for error conditions
-  if (!p.camera.takePhoto(&p.SDCard.data)){
-    // err |= ERR_CAMERA; 
-    Serial.println("take photo failed");
-  }
+  // creating file with time hhmmss
+  strcat(buf, "/");
+  strncat(buf, date + 9, 2);
+  strncat(buf, date + 12, 2);
+  strncat(buf, date + 15, 2);
+  strcat(buf, ".JPG");
+
+  // write photo to HHMMSS.JPG
+  if (!p.SDCard.openFile(buf, FILE_WRITE)) Serial.printf("openFile() error: %s", buf);
   else {
-    Serial.println("Photo captured");
+    if (!p.camera.takePhoto(&p.SDCard.data)){
+      // err |= ERR_CAMERA; 
+      Serial.println("take photo failed");
+    }
+    else {
+      Serial.println("Photo captured");
+    }
   }
-
+  
   p.HYPNOS_5VR_OFF();
   p.SDCard.closeFile();
 }
