@@ -124,7 +124,7 @@ void setup() {
 
   // turn on HYPNOS 3V rail
   p.HYPNOS_3VR_ON();
-
+  // turn on HYPNOS 5V rail
   p.HYPNOS_5VR_ON();
 
   // check if RTC can be initialized, if it can, get the current time and use operation times loaded from SD card
@@ -382,9 +382,10 @@ void loop() {
     p.startAudioInput();
   }
 
-  // TODO - add other intermittent data logging (see PiedPiper_old.ino as example)
-  //        use microsTime here, it stores time returned by micros() everytime the audio input buffer fills
-  // log alive every hour
+  // update the current time
+  updateMicros();
+
+  // log the device if it's been an hour or longer since the previous
   if (microsTime - prevMicrosTime > 3000){
     p.stopAudio();
     logAlive();
@@ -481,20 +482,11 @@ void saveDetection() {
   
   useCamera();
 
-  // TODO: open file for storing photo, call camera.takePhoto(&p.SDCard.data) after opening file...
-  // Hints: 
-  //    - use buf2 to form path to photo file...
-  //    - make sure to turn on HYPNOS 5VR before taking photo
 }
 
-//       implement logAlive. It must log time from RTC and temperature/humidity data from temperature sensor to LOG.TXT...
-//       in this format "YYYYDDMM-hh:mm:ss T H E" (T = temperature, H = humidity, E = err)
-//       if rtc is not alive log "YYYYDDMM-hh:mm:ss" instead of time
-//       if temperature sensor is not alive, log "T H" instead of temperature and humidity
-
-
+// logs the date and time, temperature, humidity, and error codes to SD card under LOG.TXT
 void logAlive() {
-  // file
+  // file name
   char buf[64] = { 0 };
   strcat(buf, "/LOG.TXT");
 
@@ -546,6 +538,7 @@ void updateMicros() {
   }
 }
 
+// takes photo and stores it to: /DATA/YYMMDD/HHMMSS.JPG
 void useCamera() {
   p.HYPNOS_5VR_ON();
   char buf[64] = { 0 };
